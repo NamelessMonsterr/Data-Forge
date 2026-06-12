@@ -1,0 +1,37 @@
+# Copy to settings.yaml (gitignored) and fill in your keys.
+providers:
+  nim:
+    api_key: ""
+    base_url: "https://integrate.api.nvidia.com/v1"
+    model: "nvidia/nemotron-4-340b-instruct"
+  groq:
+    api_key: ""
+    model: "llama-3.1-70b-versatile"
+  gemini:
+    api_key: ""
+    model: "gemini-1.5-pro"
+  openai:
+    api_key: ""
+    model: "gpt-4o-mini"
+  ollama:
+    base_url: "http://localhost:11434"
+    model: "llama3"
+
+discovery:
+  live_enabled: false
+  github_token: ""
+  web_search_endpoint: ""      # optional endpoint returning {"results":[{"title":"","url":"","snippet":""}]}
+  timeout_seconds: 5
+
+router:
+  policy: "balanced"           # fastest | cheapest | highest_quality | balanced | privacy
+  failover_chain: [nim, groq, gemini, openai, ollama]
+
+quality:
+  default_profile: "production"  # fast | balanced | production | research | enterprise
+  max_iterations: 3
+  budget_usd: 5.0
+
+storage:
+  postgres_dsn: "postgresql://dataforge:dataforge@localhost:5432/dataforge"
+  redis_url: "redis://localhost:6379/0"
