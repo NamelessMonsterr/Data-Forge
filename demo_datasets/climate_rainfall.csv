@@ -1,0 +1,7 @@
+station_id,region,year,month,rainfall_mm,temperature_c,humidity_percent,soil_moisture,crop_zone,flood_risk
+C001,Kerala,2023,6,642,27.2,88,0.72,paddy,medium
+C002,Kerala,2023,7,811,26.8,91,0.81,paddy,high
+C003,Maharashtra,2023,7,288,29.4,73,0.46,cotton,low
+C004,Assam,2024,6,734,28.1,89,0.78,tea,high
+C005,Karnataka,2024,8,216,25.9,69,0.38,millet,low
+C006,Tamil Nadu,2024,10,354,27.5,76,0.52,rice,medium

@@ -5,6 +5,25 @@
 Instead of "Where can I find a dataset?" users say **"I need a dataset for my task."**
 The platform decides how to get the best dataset. **Generation is the last resort.**
 
+## Hackathon Demo
+
+DataForge is now demoable as an AI-powered dataset discovery platform:
+
+```text
+Natural language search -> Ranked dataset results -> AI recommendation
+Upload dataset -> Normalize/analyze/index -> Download dataset.zip
+```
+
+Best live path:
+
+1. Search `Find datasets for diabetes prediction`.
+2. Open a ranked dataset and show the AI summary/recommendation.
+3. Upload `demo_datasets/healthcare_diabetes.csv`.
+4. Process it, show the quality/schema/artifact output, and download ZIP.
+5. Search `diabetes glucose outcome labels` to show the uploaded dataset in the catalog.
+
+See [Demo Runbook](docs/DEMO_RUNBOOK.md) for the 3-minute script, fallback plan, and sample prompts.
+
 ## Core Philosophy
 
 ```
@@ -39,12 +58,11 @@ dataforge-ai/
   agents/         Independent agents (discovery, curator, generator, ...)
   router/         Hybrid API Router (providers, policies, failover)
   reports/        Report generators (intelligence, explainability, quality)
-  database/       Schema and migrations (PostgreSQL / Redis / Vector DB)
-  frontend/       Next.js + React + Tailwind + shadcn/ui (separate workstream)
+  frontend/       Dependency-free dark-mode MVP frontend
+  demo_datasets/  Curated CSVs for live demos
   config/         Settings and provider configuration
-  deployment/     Docker / compose / deployment assets
   tests/          Unit and integration tests
-  docs/           PRD, quality framework, architecture decisions
+  docs/           PRD, quality framework, demo runbook
 ```
 
 ## Quickstart (backend)
@@ -64,6 +82,43 @@ pip install -r requirements.txt
 uvicorn backend.app.main:app --reload
 ```
 
+## Quickstart (frontend)
+
+The MVP frontend is dependency-free and lives in `frontend/`.
+
+Start the API:
+
+```powershell
+uvicorn backend.app.main:app --reload
+```
+
+Start the frontend in a second terminal:
+
+```powershell
+cd frontend
+python -m http.server 5173
+```
+
+Open:
+
+```text
+http://127.0.0.1:5173
+```
+
+Recommended demo prompts:
+
+- Find datasets for diabetes prediction
+- Climate datasets for rainfall forecasting
+- Customer churn datasets
+- Indian traffic accident datasets
+
+The frontend calls the existing backend APIs:
+
+- `POST /datasets/search`
+- `POST /datasets/process`
+- `GET /datasets/catalog`
+- `GET /ai/llm/status`
+
 ## Executable Product Slice
 
 The backend now runs a deterministic end-to-end product slice:
@@ -79,6 +134,117 @@ The Planner still never invents workflows. It selects a base Workflow Library en
 then applies legal mutations such as removing optional translation for single-language
 requests or removing optional bias checks for fast profiles. The mutated graph is
 validated before execution.
+
+## Dataset Ingestion
+
+DataForge can ingest real dataset content and produce normalized artifacts:
+
+- CSV
+- JSON
+- JSONL
+
+```bash
+curl -X POST http://127.0.0.1:8000/datasets/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"filename":"healthcare.csv","content":"instruction,language\nTake water,en\nPani piyo,hi\n"}'
+```
+
+The response includes a parsed preview, inferred schema, row/column counts, duplicate
+and missing-value statistics, a source checksum, and artifact paths under
+`tmp/dataforge_runs/ingestions/`:
+
+- `normalized_dataset.jsonl`
+- `schema.json`
+- `ingestion_report.json`
+
+For the demo path, process an uploaded dataset into reports, manifest, checksums, and
+a downloadable ZIP:
+
+```bash
+curl -X POST http://127.0.0.1:8000/datasets/process \
+  -H "Content-Type: application/json" \
+  -d '{"filename":"healthcare.csv","request":"Analyze this uploaded healthcare instruction dataset.","content":"instruction,response,language\nTake water,Hydrate,en\nPani piyo,Hydrate,hi\n"}'
+```
+
+This returns an immediate dataset summary plus artifact paths:
+
+```json
+{
+  "status": "completed",
+  "workflow": "uploaded_dataset_package",
+  "summary": {
+    "rows": 2,
+    "columns": 3,
+    "missing_values": 0,
+    "duplicate_rows": 0,
+    "checksum": "..."
+  },
+  "artifacts": {
+    "dataset_zip": "tmp/dataforge_runs/upload-.../dataset.zip",
+    "manifest": "tmp/dataforge_runs/upload-.../manifest.json"
+  }
+}
+```
+
+Processed uploads are automatically indexed in the local dataset catalog. Search
+uploaded datasets alone:
+
+```bash
+curl -X POST http://127.0.0.1:8000/datasets/search \
+  -H "Content-Type: application/json" \
+  -d '{"query":"glucose bmi diabetes","include_public":false}'
+```
+
+Or search uploaded datasets together with public discovery candidates:
+
+```bash
+curl -X POST http://127.0.0.1:8000/datasets/search \
+  -H "Content-Type: application/json" \
+  -d '{"query":"find diabetes prediction datasets","include_public":true,"limit":5}'
+```
+
+List the local catalog:
+
+```bash
+curl http://127.0.0.1:8000/datasets/catalog
+```
+
+Catalog search uses an offline-safe semantic scorer with synonym expansion and the
+following ranking shape:
+
+```text
+overall_score =
+0.50 * semantic relevance
++ 0.20 * quality score
++ 0.15 * completeness
++ 0.10 * source credibility
++ 0.05 * freshness
+```
+
+Each indexed upload also receives an AI-generated dataset summary and search
+recommendation through a provider-agnostic skill layer:
+
+```text
+DatasetSummarySkill -> LLMOrchestrator -> NIM -> Gemini -> OpenAI -> Ollama
+```
+
+The skill defines what is needed; the orchestrator owns retries, fallback, and
+provider health. NVIDIA NIM is preferred by default:
+
+```bash
+curl http://127.0.0.1:8000/ai/llm/status
+```
+
+Provider priority and retry behavior can be configured:
+
+```powershell
+$env:DATAFORGE_LLM_PROVIDERS="nim,gemini,openai,ollama"
+$env:DATAFORGE_LLM_MAX_RETRIES="3"
+$env:DATAFORGE_LLM_COOLDOWN_SECONDS="60"
+$env:NVIDIA_API_KEY="<your-nvidia-api-key>"
+$env:NVIDIA_NIM_BASE_URL="https://integrate.api.nvidia.com/v1"
+$env:NVIDIA_NIM_MODEL="meta/llama-3.1-70b-instruct"
+```
 
 Planner output includes machine-readable planning metadata:
 
@@ -182,6 +348,17 @@ curl http://127.0.0.1:8000/services/manifests
 curl -X POST http://127.0.0.1:8000/discovery/search \
   -H "Content-Type: application/json" \
   -d '{"request":"I need an English-Hindi healthcare instruction dataset."}'
+curl -X POST http://127.0.0.1:8000/datasets/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"filename":"healthcare.csv","content":"instruction,language\nTake water,en\nPani piyo,hi\n"}'
+curl -X POST http://127.0.0.1:8000/datasets/process \
+  -H "Content-Type: application/json" \
+  -d '{"filename":"healthcare.csv","request":"Analyze this uploaded healthcare instruction dataset.","content":"instruction,response,language\nTake water,Hydrate,en\nPani piyo,Hydrate,hi\n"}'
+curl -X POST http://127.0.0.1:8000/datasets/search \
+  -H "Content-Type: application/json" \
+  -d '{"query":"healthcare instruction hindi","include_public":true,"limit":5}'
+curl http://127.0.0.1:8000/datasets/catalog
+curl http://127.0.0.1:8000/ai/llm/status
 curl http://127.0.0.1:8000/discovery/providers
 curl http://127.0.0.1:8000/workflows
 curl http://127.0.0.1:8000/workflow/runs

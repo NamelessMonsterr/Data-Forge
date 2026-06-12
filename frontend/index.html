@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DataForge</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#home" aria-label="DataForge home">
+          <span class="brand-mark" aria-hidden="true">D</span>
+          <span>DataForge</span>
+        </a>
+        <nav class="nav" aria-label="Primary navigation">
+          <a href="#search">Search</a>
+          <a href="#upload">Upload</a>
+          <a href="#catalog">Catalog</a>
+          <a href="#about">About</a>
+        </nav>
+        <button class="provider" id="providerStatus" type="button">AI Status - NVIDIA</button>
+      </header>
+
+      <main>
+        <section class="hero" id="home">
+          <div class="hero-copy">
+            <h1>Find the Right Dataset with AI</h1>
+            <p>
+              Search public datasets or upload your own. DataForge ranks relevance,
+              explains recommendations, and packages ready-to-use artifacts.
+            </p>
+            <form class="search-form" id="heroSearchForm">
+              <label class="sr-only" for="heroQuery">Search datasets</label>
+              <input
+                id="heroQuery"
+                name="query"
+                type="search"
+                placeholder="Find healthcare datasets with patient demographics"
+                autocomplete="off"
+              />
+              <button type="submit">Search</button>
+            </form>
+            <div class="hero-actions">
+              <a class="button secondary" href="#upload">Upload Dataset</a>
+              <button class="button ghost" id="loadCatalogButton" type="button">
+                View Catalog
+              </button>
+            </div>
+            <div class="prompt-examples" aria-label="Example dataset searches">
+              <span>Try:</span>
+              <button type="button" data-prompt="Find datasets for diabetes prediction">
+                Diabetes prediction
+              </button>
+              <button type="button" data-prompt="Climate datasets for rainfall forecasting">
+                Rainfall forecasting
+              </button>
+              <button type="button" data-prompt="Customer churn datasets">
+                Customer churn
+              </button>
+              <button type="button" data-prompt="Indian traffic accident datasets">
+                Indian traffic accidents
+              </button>
+            </div>
+            <div class="feature-strip" aria-label="DataForge capabilities">
+              <div>AI Dataset Search</div>
+              <div>Upload &amp; Analyze</div>
+              <div>AI Recommendations</div>
+              <div>Export Dataset Artifacts</div>
+            </div>
+          </div>
+          <div class="hero-panel" aria-label="Dataset discovery workflow preview">
+            <div class="panel-header">
+              <span>Workflow</span>
+              <strong>Ready</strong>
+            </div>
+            <div class="pipeline">
+              <div>Natural language query</div>
+              <div>Semantic ranking</div>
+              <div>AI recommendation</div>
+              <div>ZIP artifacts</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="workspace" id="search">
+          <div class="section-heading">
+            <div>
+              <h2>Search Results</h2>
+              <p id="resultContext">Search for datasets or load the local catalog.</p>
+            </div>
+            <form class="toolbar-search" id="searchForm">
+              <label class="sr-only" for="searchQuery">Search query</label>
+              <input
+                id="searchQuery"
+                name="query"
+                type="search"
+                placeholder="Customer churn datasets"
+                autocomplete="off"
+              />
+              <label class="toggle">
+                <input id="includePublic" type="checkbox" checked />
+                <span>Public</span>
+              </label>
+              <button type="submit">Run Search</button>
+            </form>
+          </div>
+          <div class="status-line" id="searchStatus">No search run yet.</div>
+          <div class="results-layout">
+            <aside class="filter-sidebar" aria-label="Search filters">
+              <button class="filter active" data-filter="all" type="button">All</button>
+              <button class="filter" data-filter="local_upload" type="button">Local</button>
+              <button class="filter" data-filter="public" type="button">Public</button>
+              <button class="filter" data-filter="huggingface" type="button">Hugging Face</button>
+              <button class="filter" data-filter="github" type="button">GitHub</button>
+              <button class="filter" data-filter="data.gov" type="button">Data.gov</button>
+            </aside>
+            <div class="results-list" id="resultsList"></div>
+            <aside class="details-pane" id="detailsPane">
+              <div class="empty-state">
+                <h3>Select a dataset</h3>
+                <p>Open a result to inspect summary, recommendation, schema, quality, and artifacts.</p>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="workspace" id="upload">
+          <div class="section-heading">
+            <div>
+              <h2>Upload Dataset</h2>
+              <p>Process CSV, JSON, or JSONL content into normalized artifacts.</p>
+            </div>
+          </div>
+          <div class="upload-grid">
+            <form class="upload-panel" id="uploadForm">
+              <label class="drop-zone" id="dropZone">
+                Dataset file
+                <input id="datasetFile" name="file" type="file" accept=".csv,.json,.jsonl" />
+                <span>Drop CSV, JSON, or JSONL here, or browse files.</span>
+              </label>
+              <label>
+                Analysis request
+                <textarea
+                  id="uploadRequest"
+                  rows="5"
+                  placeholder="Analyze this uploaded healthcare instruction dataset."
+                ></textarea>
+              </label>
+              <button type="submit">Process Dataset</button>
+            </form>
+            <div class="upload-result" id="uploadResult">
+              <h3>Processing output</h3>
+              <p>Choose a dataset to generate a summary, catalog record, manifest, checksums, and ZIP.</p>
+              <div class="stepper" id="uploadStepper" aria-label="Upload processing steps">
+                <div>Upload</div>
+                <div>Normalize</div>
+                <div>Analyze</div>
+                <div>Generate Artifacts</div>
+                <div>Index Dataset</div>
+                <div>Complete</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="workspace" id="catalog">
+          <div class="section-heading">
+            <div>
+              <h2>Catalog</h2>
+              <p>Browse indexed datasets, sort by quality, and open artifact details.</p>
+            </div>
+            <button id="refreshCatalogButton" type="button">Refresh Catalog</button>
+          </div>
+          <div class="catalog-grid" id="catalogGrid"></div>
+        </section>
+
+        <section class="workspace about" id="about">
+          <div>
+            <h2>AI-powered dataset discovery</h2>
+            <p>
+              DataForge helps users find, inspect, and package datasets through
+              natural language search, uploaded-data analysis, AI summaries, and
+              downloadable artifacts.
+            </p>
+          </div>
+        </section>
+      </main>
+    </div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

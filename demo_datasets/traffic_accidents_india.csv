@@ -1,0 +1,6 @@
+incident_id,city,state,date,road_type,vehicle_type,weather,severity,injuries,fatalities,latitude,longitude
+T001,Bangalore,Karnataka,2024-01-12,urban arterial,two wheeler,clear,minor,1,0,12.9716,77.5946
+T002,Bangalore,Karnataka,2024-02-03,highway,car,rain,severe,3,0,12.9352,77.6245
+T003,Mysuru,Karnataka,2024-02-19,city road,bus,clear,moderate,5,0,12.2958,76.6394
+T004,Bangalore,Karnataka,2024-03-07,flyover,truck,fog,severe,2,1,13.0358,77.5970
+T005,Mangaluru,Karnataka,2024-03-22,coastal road,car,rain,minor,1,0,12.9141,74.8560

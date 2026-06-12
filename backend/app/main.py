@@ -2,7 +2,8 @@
 
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from backend.core.agent_manifest import all_agent_manifests
@@ -11,7 +12,11 @@ from backend.core.repository import JsonRepository, RunRecord, utc_now
 from backend.core.registry import AGENT_REGISTRY, capability_matrix
 from backend.core.service_manifest import all_service_manifests
 from backend.core.settings import get_settings
+from backend.services.catalog import DatasetCatalogService, UnifiedDatasetSearchService
+from backend.services.dataset_processing import DatasetProcessingService
 from backend.services.discovery import DiscoveryService
+from backend.services.ingestion import DatasetIngestionService
+from backend.services.llm_orchestrator import LLMOrchestrator
 from planner.planner import RuleBasedPlanner
 from planner.workflow_library import WORKFLOW_LIBRARY
 from router.hybrid_router import HybridRouter
@@ -20,6 +25,18 @@ app = FastAPI(
     title="DataForge AI",
     description="Autonomous AI Data Engineering Platform",
     version="0.1.0",
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+        "http://127.0.0.1:8080",
+        "http://localhost:8080",
+    ],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -93,6 +110,65 @@ def discovery_providers() -> dict:
     """Return configured discovery providers and last error state."""
     service = DiscoveryService()
     return service.provider_status()
+
+
+@app.post("/datasets/ingest")
+def ingest_dataset(payload: dict) -> dict:
+    """Parse a dataset payload and write normalized ingestion artifacts."""
+    settings = get_settings()
+    service = DatasetIngestionService(settings.storage.artifacts_root / "ingestions")
+    try:
+        result = service.ingest(
+            filename=str(payload.get("filename", "dataset.csv")),
+            content=str(payload.get("content", "")),
+            source_format=payload.get("format"),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return result.to_dict()
+
+
+@app.post("/datasets/process")
+def process_dataset(payload: dict) -> dict:
+    """Ingest uploaded dataset content and generate reports, manifest, and ZIP."""
+    settings = get_settings()
+    service = DatasetProcessingService(settings.storage.artifacts_root)
+    try:
+        result = service.process(
+            filename=str(payload.get("filename", "dataset.csv")),
+            content=str(payload.get("content", "")),
+            source_format=payload.get("format"),
+            request=str(payload.get("request", "Analyze uploaded dataset.")),
+            quality_profile=str(payload.get("quality_profile", "production")),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    catalog_record = DatasetCatalogService(repository()).index_processed_upload(result)
+    result["catalog_record"] = {
+        "id": catalog_record.dataset_id,
+        "title": catalog_record.title,
+        "source": catalog_record.source,
+    }
+    return result
+
+
+@app.get("/datasets/catalog")
+def list_dataset_catalog() -> dict:
+    """List uploaded datasets indexed in the local catalog."""
+    catalog = DatasetCatalogService(repository())
+    return {"datasets": catalog.list_datasets()}
+
+
+@app.post("/datasets/search")
+def search_datasets(payload: dict) -> dict:
+    """Search local uploaded datasets and optionally public dataset providers."""
+    catalog = DatasetCatalogService(repository())
+    service = UnifiedDatasetSearchService(catalog)
+    return service.search(
+        query=str(payload.get("query", "")),
+        include_public=bool(payload.get("include_public", False)),
+        limit=int(payload.get("limit", 10)),
+    )
 
 
 @app.post("/projects")
@@ -200,6 +276,12 @@ def router_status() -> dict:
     """Return provider routing policy and current in-memory provider stats."""
     router = HybridRouter()
     return router.status()
+
+
+@app.get("/ai/llm/status")
+def llm_status() -> dict:
+    """Return LLM skill orchestrator provider priority and health."""
+    return LLMOrchestrator().status()
 
 
 @app.get("/reports/{task_id}")

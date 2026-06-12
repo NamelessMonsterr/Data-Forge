@@ -1,0 +1,7 @@
+patient_id,age,gender,glucose,bmi,blood_pressure,insulin,family_history,outcome,language
+P001,45,F,148,31.2,132,94,yes,1,en
+P002,38,M,112,24.8,118,60,no,0,en
+P003,52,F,181,34.5,146,130,yes,1,en
+P004,29,F,96,22.1,110,55,no,0,en
+P005,61,M,166,29.9,138,120,yes,1,en
+P006,47,M,126,27.4,124,76,no,0,en

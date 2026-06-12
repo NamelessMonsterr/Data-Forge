@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from backend.core.repository import JsonRepository, RunRecord, utc_now
+from backend.core.repository import DatasetCatalogRecord, JsonRepository, RunRecord, utc_now
 
 
 def test_json_repository_persists_projects_and_runs(tmp_path: Path):
@@ -21,9 +21,30 @@ def test_json_repository_persists_projects_and_runs(tmp_path: Path):
         completed_at=utc_now(),
     )
     repo.save_run(run)
+    dataset = DatasetCatalogRecord(
+        dataset_id="local-1",
+        title="Healthcare Upload",
+        source="local_upload",
+        provider="local",
+        task_id=run.task_id,
+        filename="healthcare.csv",
+        format="csv",
+        rows=2,
+        columns=3,
+        schema={"instruction": {"type": "string"}},
+        stats={"missing_cells": 0},
+        artifacts={"dataset_zip": "dataset.zip"},
+        quality_score=91,
+        tags=["healthcare", "instruction"],
+        description="Healthcare uploaded dataset.",
+        created_at=utc_now(),
+    )
+    repo.save_dataset(dataset)
 
     reloaded = JsonRepository(state_path)
 
     assert reloaded.get_project(project.project_id) == project
     assert reloaded.get_run("task-1") == run
     assert reloaded.list_runs(project.project_id) == [run]
+    assert reloaded.get_dataset("local-1") == dataset
+    assert reloaded.list_datasets() == [dataset]

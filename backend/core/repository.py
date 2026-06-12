@@ -41,12 +41,37 @@ class RunRecord:
     completed_at: str | None = None
 
 
+@dataclass(frozen=True)
+class DatasetCatalogRecord:
+    """Persisted searchable metadata for uploaded or discovered datasets."""
+
+    dataset_id: str
+    title: str
+    source: str
+    provider: str
+    task_id: str | None
+    filename: str
+    format: str
+    rows: int
+    columns: int
+    schema: dict[str, Any]
+    stats: dict[str, Any]
+    artifacts: dict[str, str]
+    quality_score: int | None
+    tags: list[str]
+    description: str
+    created_at: str
+    ai_summary: str = ""
+    ai_provider: str = "local"
+
+
 @dataclass
 class RepositorySnapshot:
     """In-memory shape stored by the JSON repository."""
 
     projects: dict[str, ProjectRecord] = field(default_factory=dict)
     runs: dict[str, RunRecord] = field(default_factory=dict)
+    datasets: dict[str, DatasetCatalogRecord] = field(default_factory=dict)
 
 
 class JsonRepository:
@@ -102,6 +127,21 @@ class JsonRepository:
         """Return a workflow run by task id."""
         return self._load().runs.get(task_id)
 
+    def save_dataset(self, dataset: DatasetCatalogRecord) -> DatasetCatalogRecord:
+        """Persist searchable dataset catalog metadata."""
+        snapshot = self._load()
+        snapshot.datasets[dataset.dataset_id] = dataset
+        self._save(snapshot)
+        return dataset
+
+    def list_datasets(self) -> list[DatasetCatalogRecord]:
+        """Return all cataloged datasets."""
+        return list(self._load().datasets.values())
+
+    def get_dataset(self, dataset_id: str) -> DatasetCatalogRecord | None:
+        """Return one cataloged dataset by id."""
+        return self._load().datasets.get(dataset_id)
+
     def _load(self) -> RepositorySnapshot:
         if not self.path.exists():
             return RepositorySnapshot()
@@ -114,7 +154,11 @@ class JsonRepository:
             task_id: RunRecord(**payload)
             for task_id, payload in raw.get("runs", {}).items()
         }
-        return RepositorySnapshot(projects=projects, runs=runs)
+        datasets = {
+            dataset_id: DatasetCatalogRecord(**{"ai_summary": "", "ai_provider": "local", **payload})
+            for dataset_id, payload in raw.get("datasets", {}).items()
+        }
+        return RepositorySnapshot(projects=projects, runs=runs, datasets=datasets)
 
     def _save(self, snapshot: RepositorySnapshot) -> None:
         payload = {
@@ -125,6 +169,10 @@ class JsonRepository:
             "runs": {
                 task_id: run.__dict__
                 for task_id, run in snapshot.runs.items()
+            },
+            "datasets": {
+                dataset_id: dataset.__dict__
+                for dataset_id, dataset in snapshot.datasets.items()
             },
         }
         self.path.write_text(json.dumps(payload, indent=2), encoding="utf-8")

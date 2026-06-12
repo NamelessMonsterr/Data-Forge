@@ -26,15 +26,37 @@ class DiscoverySettings:
 
 
 @dataclass(frozen=True)
+class LLMSettings:
+    """LLM orchestration settings."""
+
+    provider_priority: tuple[str, ...] = ("nim", "gemini", "openai", "ollama")
+    max_retries: int = 3
+    cooldown_seconds: float = 60.0
+    timeout_seconds: float = 20.0
+    nvidia_api_key: str | None = None
+    nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
+    nvidia_model: str = "meta/llama-3.1-70b-instruct"
+    openai_api_key: str | None = None
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_model: str = "gpt-4o-mini"
+
+
+@dataclass(frozen=True)
 class AppSettings:
     """Top-level DataForge application settings."""
 
     storage: StorageSettings = field(default_factory=StorageSettings)
     discovery: DiscoverySettings = field(default_factory=DiscoverySettings)
+    llm: LLMSettings = field(default_factory=LLMSettings)
 
 
 def get_settings() -> AppSettings:
     """Return default application settings."""
+    provider_priority = tuple(
+        provider.strip().lower()
+        for provider in os.getenv("DATAFORGE_LLM_PROVIDERS", "nim,gemini,openai,ollama").split(",")
+        if provider.strip()
+    )
     return AppSettings(
         discovery=DiscoverySettings(
             live_enabled=os.getenv("DATAFORGE_LIVE_DISCOVERY", "").lower()
@@ -42,5 +64,23 @@ def get_settings() -> AppSettings:
             github_token=os.getenv("GITHUB_TOKEN"),
             web_search_endpoint=os.getenv("DATAFORGE_WEB_SEARCH_ENDPOINT"),
             timeout_seconds=float(os.getenv("DATAFORGE_DISCOVERY_TIMEOUT", "5")),
-        )
+        ),
+        llm=LLMSettings(
+            provider_priority=provider_priority or ("nim", "gemini", "openai", "ollama"),
+            max_retries=int(os.getenv("DATAFORGE_LLM_MAX_RETRIES", "3")),
+            cooldown_seconds=float(os.getenv("DATAFORGE_LLM_COOLDOWN_SECONDS", "60")),
+            timeout_seconds=float(os.getenv("DATAFORGE_LLM_TIMEOUT", "20")),
+            nvidia_api_key=os.getenv("NVIDIA_API_KEY"),
+            nvidia_base_url=os.getenv(
+                "NVIDIA_NIM_BASE_URL",
+                "https://integrate.api.nvidia.com/v1",
+            ),
+            nvidia_model=os.getenv(
+                "NVIDIA_NIM_MODEL",
+                "meta/llama-3.1-70b-instruct",
+            ),
+            openai_api_key=os.getenv("OPENAI_API_KEY"),
+            openai_base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+            openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        ),
     )
