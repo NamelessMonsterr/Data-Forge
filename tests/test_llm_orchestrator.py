@@ -81,6 +81,7 @@ def test_semantic_encoder_matches_related_dataset_terms():
 
 
 def test_default_orchestrator_uses_nvidia_provider_when_key_is_configured(monkeypatch):
+    monkeypatch.setenv("DATAFORGE_LIVE_LLM", "true")
     monkeypatch.setenv("NVIDIA_API_KEY", "test-key")
     monkeypatch.setenv("NVIDIA_NIM_BASE_URL", "https://example.test/v1")
     monkeypatch.setenv("NVIDIA_NIM_MODEL", "nvidia-test-model")
@@ -92,3 +93,15 @@ def test_default_orchestrator_uses_nvidia_provider_when_key_is_configured(monkey
     assert orchestrator.providers[0].name == "nim"
     assert orchestrator.providers[0].base_url == "https://example.test/v1"
     assert orchestrator.providers[0].model == "nvidia-test-model"
+
+
+def test_default_orchestrator_is_honest_about_offline_mode(monkeypatch):
+    monkeypatch.delenv("DATAFORGE_LIVE_LLM", raising=False)
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("DATAFORGE_LLM_PROVIDERS", "nim,gemini,openai,ollama")
+
+    status = LLMOrchestrator().status()
+
+    assert status["active_provider"] == "local-deterministic"
+    assert status["mode"] == "offline_deterministic"

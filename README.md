@@ -46,7 +46,7 @@ Every component supports the same philosophy:
 - Dynamic Planner (Workflow Library + legal mutations, never free-form graphs)
 - Graph Validator (no invalid graph ever executes)
 - Agent Registry (single source of truth; capability matrix is derived)
-- Hybrid API Router (NIM preferred; Groq / Gemini / OpenAI / Ollama failover)
+- AI Skill Orchestrator (NVIDIA NIM/OpenAI live providers when keys are configured; deterministic offline fallback otherwise)
 - Confidence Protocol (every agent output carries confidence + reason + next_action)
 - Hard Gates (License, PII, Critical Toxicity) before any quality score
 - Quality Scoring Framework (weighted metrics, see docs/QUALITY_FRAMEWORK.md)
@@ -60,7 +60,7 @@ dataforge-ai/
   backend/        FastAPI app, core protocol, agent registry
   planner/        Workflow library, graph validator, execution engine
   agents/         Independent agents (discovery, curator, generator, ...)
-  router/         Hybrid API Router (providers, policies, failover)
+  router/         Provider routing policy prototype
   reports/        Report generators (intelligence, explainability, quality)
   frontend/       Dependency-free dark-mode MVP frontend
   demo_datasets/  Curated CSVs for live demos
@@ -129,7 +129,7 @@ For a clean hackathon ZIP, package the source without generated state, caches, o
 history:
 
 ```powershell
-Compress-Archive -Path backend,agents,planner,reports,router,tests,frontend,docs,demo_datasets,config,README.md,requirements.txt,DataForge_AI_Master_PRD_v1.0.pdf -DestinationPath DataForge_AI_Submission.zip -Force
+Compress-Archive -Path backend,agents,planner,reports,router,tests,frontend,docs,demo_datasets,config,README.md,requirements.txt -DestinationPath DataForge_AI_Submission.zip -Force
 ```
 
 Do not include `.git/`, `.pytest_cache/`, `__pycache__/`, `.pyc`, `tmp/`, `logs/`, or
@@ -145,6 +145,11 @@ Request -> RuleBasedPlanner -> Workflow Library -> Graph Validator
         -> Search -> License -> Merge -> Clean -> Translate -> Curate
         -> Quality -> Bias -> Validate -> Benchmark -> Reports -> Export
 ```
+
+The default demo mode is deterministic and offline-safe. It is designed to make
+planning, validation, packaging, search, and reporting reproducible without API
+keys. Live NVIDIA NIM and OpenAI-compatible calls are available through the AI
+Skill Orchestrator when live LLM mode and credentials are configured.
 
 The Planner still never invents workflows. It selects a base Workflow Library entry,
 then applies legal mutations such as removing optional translation for single-language
@@ -241,11 +246,13 @@ Each indexed upload also receives an AI-generated dataset summary and search
 recommendation through a provider-agnostic skill layer:
 
 ```text
-DatasetSummarySkill -> LLMOrchestrator -> NIM -> Gemini -> OpenAI -> Ollama
+DatasetSummarySkill -> LLMOrchestrator -> NVIDIA NIM -> OpenAI -> deterministic fallback
 ```
 
 The skill defines what is needed; the orchestrator owns retries, fallback, and
-provider health. NVIDIA NIM is preferred by default:
+provider health. By default, `/ai/llm/status` reports `local-deterministic`.
+With `DATAFORGE_LIVE_LLM=true` and `NVIDIA_API_KEY`, NVIDIA NIM becomes the
+active live provider:
 
 ```bash
 curl http://127.0.0.1:8000/ai/llm/status
@@ -255,6 +262,7 @@ Provider priority and retry behavior can be configured:
 
 ```powershell
 $env:DATAFORGE_LLM_PROVIDERS="nim,gemini,openai,ollama"
+$env:DATAFORGE_LIVE_LLM="true"
 $env:DATAFORGE_LLM_MAX_RETRIES="3"
 $env:DATAFORGE_LLM_COOLDOWN_SECONDS="60"
 $env:NVIDIA_API_KEY="<your-nvidia-api-key>"

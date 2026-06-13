@@ -57,7 +57,7 @@ class ProviderHealth:
 class DeterministicSkillProvider:
     """Offline-safe provider used until real credentials are configured."""
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str = "local-deterministic") -> None:
         self.name = name
 
     def execute(self, request: LLMRequest) -> str:
@@ -225,6 +225,8 @@ class LLMOrchestrator:
 
     def _default_providers(self, settings: Any) -> list[LLMProvider]:
         providers: list[LLMProvider] = []
+        if not settings.live_enabled:
+            return [DeterministicSkillProvider()]
         for provider_name in settings.provider_priority:
             if provider_name == "nim" and settings.nvidia_api_key:
                 providers.append(
@@ -246,14 +248,18 @@ class LLMOrchestrator:
                         timeout_seconds=settings.timeout_seconds,
                     )
                 )
-            else:
-                providers.append(DeterministicSkillProvider(provider_name))
+        if not providers:
+            providers.append(DeterministicSkillProvider())
         return providers
 
     def status(self) -> dict[str, Any]:
         """Return provider priority and health state."""
         return {
             "provider_priority": [provider.name for provider in self.providers],
+            "active_provider": self.providers[0].name if self.providers else None,
+            "mode": "offline_deterministic"
+            if self.providers and self.providers[0].name == "local-deterministic"
+            else "live_provider",
             "max_retries": self.max_retries,
             "cooldown_seconds": self.cooldown_seconds,
             "health": {

@@ -1,6 +1,7 @@
 """DataForge AI - FastAPI application entrypoint."""
 
 from pathlib import Path
+import re
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -43,6 +44,13 @@ app.add_middleware(
 def repository() -> JsonRepository:
     """Create the configured repository boundary."""
     return JsonRepository(get_settings().storage.state_path)
+
+
+def safe_task_id(task_id: str) -> str:
+    """Return a validated task id suitable for artifact path lookup."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", task_id):
+        raise HTTPException(status_code=400, detail="Invalid task id.")
+    return task_id
 
 
 @app.get("/health")
@@ -287,6 +295,7 @@ def llm_status() -> dict:
 @app.get("/reports/{task_id}")
 def list_reports(task_id: str) -> dict:
     """List generated report files for an execution task."""
+    task_id = safe_task_id(task_id)
     reports_dir = get_settings().storage.artifacts_root / task_id / "reports"
     reports = []
     if reports_dir.exists():
@@ -297,5 +306,6 @@ def list_reports(task_id: str) -> dict:
 @app.get("/artifacts/{task_id}/dataset.zip")
 def download_dataset_zip(task_id: str) -> FileResponse:
     """Download a packaged dataset ZIP for an execution task."""
+    task_id = safe_task_id(task_id)
     zip_path = get_settings().storage.artifacts_root / task_id / "dataset.zip"
     return FileResponse(zip_path, filename="dataset.zip", media_type="application/zip")

@@ -39,7 +39,8 @@ def test_platform_catalog_endpoints_expose_workflows_and_router():
     assert "full_search_improve_export" in workflows["workflows"]
     assert "nim" in router["failover_chain"]
     assert router["selected_provider"] == "nim"
-    assert llm["provider_priority"][0] == "nim"
+    assert llm["active_provider"] == "local-deterministic"
+    assert llm["mode"] == "offline_deterministic"
     assert "planner" in cards["cards"]
     assert cards["cards"]["planner"]["registry_agent"] is False
     assert len([card for card in cards["cards"].values() if card["registry_agent"]]) == 17
@@ -206,3 +207,14 @@ def test_project_and_run_status_surfaces():
     assert status["run"]["project_id"] == project["project_id"]
     assert project_detail["project"]["name"] == "Healthcare Dataset"
     assert project_detail["runs"]
+
+
+def test_artifact_endpoints_reject_invalid_task_ids():
+    """Artifact paths should reject traversal-like task ids before path lookup."""
+    client = TestClient(app)
+
+    reports = client.get("/reports/bad..id")
+    artifact = client.get("/artifacts/bad..id/dataset.zip")
+
+    assert reports.status_code == 400
+    assert artifact.status_code == 400

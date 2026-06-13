@@ -54,7 +54,11 @@ async function api(path, options = {}) {
 
 function scoreLabel(item) {
   const score = item.relevance_score ?? item.discovery_score ?? item.quality_score ?? 0;
-  return `${Math.round(Number(score) * 100 || Number(score))}%`;
+  const numeric = Number(score);
+  if (!Number.isFinite(numeric)) {
+    return "n/a";
+  }
+  return `${Math.round(numeric <= 1 ? numeric * 100 : numeric)}%`;
 }
 
 function sourceLabel(item) {
@@ -285,6 +289,10 @@ async function processUpload(event) {
   setStepper(1);
   await wait(180);
   setStepper(2);
+  await wait(180);
+  setStepper(3);
+  await wait(180);
+  setStepper(4);
   const result = await api("/datasets/process", {
     method: "POST",
     body: JSON.stringify({
@@ -293,6 +301,8 @@ async function processUpload(event) {
       request: elements.uploadRequest.value || "Analyze this uploaded dataset.",
     }),
   });
+  setStepper(5);
+  await wait(180);
   setStepper(6);
   showToast("Dataset processed and indexed.");
   const zip = `${API_BASE}/artifacts/${result.task_id}/dataset.zip`;
@@ -333,8 +343,9 @@ function renderUploadError(message) {
 async function loadProviderStatus() {
   try {
     const status = await api("/ai/llm/status");
-    const primary = status.provider_priority?.[0] || "nim";
-    elements.providerStatus.textContent = `AI Status - ${primary.toUpperCase()}`;
+    const primary = status.active_provider || status.provider_priority?.[0] || "local-deterministic";
+    const label = primary === "local-deterministic" ? "Offline Mode" : primary.toUpperCase();
+    elements.providerStatus.textContent = `AI Status - ${label}`;
     elements.providerStatus.title = `Retries: ${status.max_retries}. Cooldown: ${status.cooldown_seconds}s.`;
   } catch {
     elements.providerStatus.textContent = "AI Status - Offline";

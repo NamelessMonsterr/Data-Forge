@@ -29,6 +29,7 @@ class DiscoverySettings:
 class LLMSettings:
     """LLM orchestration settings."""
 
+    live_enabled: bool = False
     provider_priority: tuple[str, ...] = ("nim", "gemini", "openai", "ollama")
     max_retries: int = 3
     cooldown_seconds: float = 60.0
@@ -66,6 +67,8 @@ def get_settings() -> AppSettings:
             timeout_seconds=float(os.getenv("DATAFORGE_DISCOVERY_TIMEOUT", "5")),
         ),
         llm=LLMSettings(
+            live_enabled=os.getenv("DATAFORGE_LIVE_LLM", "").lower()
+            in {"1", "true", "yes"},
             provider_priority=provider_priority or ("nim", "gemini", "openai", "ollama"),
             max_retries=int(os.getenv("DATAFORGE_LLM_MAX_RETRIES", "3")),
             cooldown_seconds=float(os.getenv("DATAFORGE_LLM_COOLDOWN_SECONDS", "60")),

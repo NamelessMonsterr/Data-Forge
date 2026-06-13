@@ -26,7 +26,7 @@ def test_catalog_indexes_processed_upload_and_searches_by_schema(tmp_path: Path)
     assert matches[0]["relevance_score"] > 0
     assert "semantic_relevance" in matches[0]
     assert matches[0]["ai_summary"]
-    assert matches[0]["ai_provider"] == "nim"
+    assert matches[0]["ai_provider"] == "local-deterministic"
     assert "glucose" in matches[0]["tags"]
     assert "recommended" in matches[0]["recommendation"]
 
