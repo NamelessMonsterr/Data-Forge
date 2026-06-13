@@ -63,6 +63,8 @@ class DatasetCatalogRecord:
     created_at: str
     ai_summary: str = ""
     ai_provider: str = "local"
+    quality_narrative: str = ""
+    quality_metrics: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -155,7 +157,15 @@ class JsonRepository:
             for task_id, payload in raw.get("runs", {}).items()
         }
         datasets = {
-            dataset_id: DatasetCatalogRecord(**{"ai_summary": "", "ai_provider": "local", **payload})
+            dataset_id: DatasetCatalogRecord(
+                **{
+                    "ai_summary": "",
+                    "ai_provider": "local",
+                    "quality_narrative": "",
+                    "quality_metrics": {},
+                    **payload,
+                }
+            )
             for dataset_id, payload in raw.get("datasets", {}).items()
         }
         return RepositorySnapshot(projects=projects, runs=runs, datasets=datasets)

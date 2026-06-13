@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from backend.services.ai_skills import AISkillService
 from backend.services.export import PackagingService
 from backend.services.ingestion import DatasetIngestionService
 from backend.services.quality import BenchmarkService, BiasService, QualityService
@@ -77,7 +78,18 @@ class DatasetProcessingService:
                 "critical_toxicity": "NOT_EVALUATED",
             },
         }
-        state["quality_report"] = QualityService().evaluate(dataset, profile=quality_profile)
+        quality_report = QualityService().evaluate(dataset, profile=quality_profile)
+        narrative = AISkillService().quality_narrative(
+            {
+                "score": quality_report["score"],
+                "threshold": quality_report["threshold"],
+                "profile": quality_report["profile"],
+                "metrics": quality_report["metrics"],
+            }
+        )
+        quality_report["narrative"] = narrative.text
+        quality_report["narrative_provider"] = narrative.provider
+        state["quality_report"] = quality_report
         state["bias_report"] = BiasService().evaluate(dataset)
         state["benchmark_report"] = BenchmarkService().evaluate(dataset)
         state["validation_report"] = {

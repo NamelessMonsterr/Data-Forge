@@ -28,6 +28,7 @@ config/settings.yaml
 
 # Artifacts
 *.zip
+DataForge_Code_Listing.pdf
 data/
 tmp/
 logs/

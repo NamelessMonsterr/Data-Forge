@@ -1,9 +1,18 @@
-"""Provider-agnostic LLM orchestration for AI skills."""
+"""Provider-agnostic LLM orchestration for AI skills.
+
+The orchestrator owns provider priority, retries, cooldown, and fallback. By
+default it runs the :class:`DeterministicSkillProvider`, which produces answers
+that are *computed from the supplied context* rather than canned strings -- so
+offline mode stays honest and useful. When ``DATAFORGE_LIVE_LLM`` is enabled and
+credentials are present, live NVIDIA NIM / OpenAI providers take priority and the
+deterministic provider becomes the final safety net.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 import json
+import re
 from time import monotonic
 from typing import Any, Protocol
 
@@ -54,26 +63,117 @@ class ProviderHealth:
         return now >= self.unavailable_until
 
 
+# --------------------------------------------------------------------------
+# Deterministic helpers (module-level so they are easy to unit test)
+# --------------------------------------------------------------------------
+
+_SYNONYMS: dict[str, list[str]] = {
+    "qa": ["question", "answer", "question_answering"],
+    "sentiment": ["polarity", "emotion", "opinion"],
+    "medical": ["healthcare", "clinical", "biomedical"],
+    "health": ["healthcare", "medical", "clinical"],
+    "finance": ["financial", "fintech", "market"],
+    "legal": ["law", "contract", "judicial"],
+    "image": ["vision", "visual", "picture"],
+    "speech": ["audio", "voice", "asr"],
+    "code": ["programming", "source", "software"],
+    "chat": ["dialogue", "conversation", "instruction"],
+}
+
+_DOMAIN_HINTS: dict[str, set[str]] = {
+    "healthcare": {"medical", "health", "clinical", "diabetes", "patient", "healthcare"},
+    "finance": {"finance", "financial", "market", "stock", "fintech", "bank"},
+    "legal": {"legal", "law", "contract", "court", "judicial"},
+    "climate": {"climate", "weather", "rainfall", "temperature", "emissions"},
+    "mobility": {"traffic", "accident", "accidents", "transport", "mobility", "vehicle"},
+    "nlp": {"chat", "qa", "sentiment", "instruction", "dialogue", "text"},
+}
+
+
+def _as_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _as_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _fmt(value: float) -> str:
+    return f"{value:.0f}" if float(value).is_integer() else f"{value:.2f}"
+
+
+def _tokens(text: str) -> list[str]:
+    return [token for token in re.split(r"[^a-z0-9]+", str(text).lower()) if token]
+
+
+def _guess_domain(tokens: list[str]) -> str:
+    token_set = set(tokens)
+    best, best_overlap = "general", 0
+    for domain, hints in _DOMAIN_HINTS.items():
+        overlap = len(token_set & hints)
+        if overlap > best_overlap:
+            best, best_overlap = domain, overlap
+    return best
+
+
+def _infer_field_role(field_name: str) -> str:
+    name = field_name.lower()
+    if name in {"id", "uuid", "index"} or name.endswith("_id"):
+        return "identifier"
+    if "instruction" in name or "prompt" in name or "question" in name:
+        return "instruction"
+    if "response" in name or "answer" in name or "completion" in name or "output" in name:
+        return "response"
+    if name in {"label", "target", "class", "category", "sentiment"} or name.endswith("_label"):
+        return "label/target"
+    if "date" in name or "time" in name or "year" in name:
+        return "temporal"
+    if "lang" in name or "language" in name:
+        return "language"
+    return "text"
+
+
 class DeterministicSkillProvider:
-    """Offline-safe provider used until real credentials are configured."""
+    """Offline-safe provider used until live credentials are configured.
+
+    Every answer is *derived from the request context*; there are no canned
+    sentences. This keeps the demo reproducible and honest while still being
+    useful, and gives live providers a meaningful fallback.
+    """
 
     def __init__(self, name: str = "local-deterministic") -> None:
         self.name = name
+        self._handlers = {
+            "dataset_summary": self._dataset_summary,
+            "dataset_recommendation": self._dataset_recommendation,
+            "dataset_gap_analysis": self._dataset_gap_analysis,
+            "schema_inference": self._schema_inference,
+            "dataset_card": self._dataset_card,
+            "quality_narrative": self._quality_narrative,
+            "search_intent": self._search_intent,
+        }
 
     def execute(self, request: LLMRequest) -> str:
-        """Generate deterministic skill outputs from structured context."""
-        if request.skill == "dataset_summary":
-            return self._dataset_summary(request.context)
-        if request.skill == "dataset_recommendation":
-            return self._dataset_recommendation(request.context)
+        """Generate deterministic skill output from structured context."""
+        handler = self._handlers.get(request.skill)
+        if handler is not None:
+            return handler(request.context)
         return f"{request.skill}: {request.prompt[:220]}"
+
+    # -- existing skills --------------------------------------------------
 
     def _dataset_summary(self, context: dict[str, Any]) -> str:
         title = context.get("title", "dataset")
         rows = context.get("rows", "unknown")
         columns = context.get("columns", "unknown")
-        schema = context.get("schema", {})
-        stats = context.get("stats", {})
+        schema = context.get("schema", {}) or {}
+        stats = context.get("stats", {}) or {}
         field_names = ", ".join(list(schema.keys())[:8]) or "Unavailable"
         missing = stats.get("missing_cells", "Unavailable")
         duplicates = stats.get("duplicate_rows", "Unavailable")
@@ -93,6 +193,150 @@ class DeterministicSkillProvider:
         return (
             f"{title} is recommended for '{query}' because it matches {matched}, "
             f"contains {rows} rows, and has a quality score of {quality}."
+        )
+
+    # -- new skills -------------------------------------------------------
+
+    def _dataset_gap_analysis(self, context: dict[str, Any]) -> str:
+        requirement = context.get("requirement", {}) or {}
+        rows = _as_int(context.get("rows"))
+        min_rows = _as_int(requirement.get("min_rows") or requirement.get("target_rows"))
+        have_langs = {
+            str(lang).lower()
+            for lang in (context.get("languages") or requirement.get("languages") or [])
+        }
+        want_langs = {str(lang).lower() for lang in (requirement.get("languages") or [])}
+        schema = context.get("schema", {}) or {}
+        fields = {str(key).lower() for key in schema}
+        gaps: list[str] = []
+        if min_rows and rows < min_rows:
+            gaps.append(
+                f"volume: {rows} of {min_rows} target rows ({min_rows - rows} short)"
+            )
+        missing_langs = sorted(want_langs - have_langs)
+        if missing_langs:
+            gaps.append("languages: missing " + ", ".join(missing_langs))
+        target = str(requirement.get("target_model", "")).lower()
+        instruction_like = {"instruction", "response", "prompt", "completion"}
+        if target and not (instruction_like & fields):
+            gaps.append(
+                "format: no instruction/response columns for instruction tuning"
+            )
+        domain = requirement.get("domain", "the request")
+        if not gaps:
+            return (
+                f"No material gaps detected for '{domain}'. "
+                f"{rows} rows with fields {', '.join(sorted(fields)) or 'unknown'} "
+                "satisfy the stated requirement; proceed to curation and skip "
+                "synthetic generation."
+            )
+        plan = (
+            "Recommended order: search additional sources for the shortfall first, "
+            "then reserve synthetic generation for residual gaps only."
+        )
+        return "Coverage gaps detected -- " + "; ".join(gaps) + ". " + plan
+
+    def _schema_inference(self, context: dict[str, Any]) -> str:
+        schema = context.get("schema", {}) or {}
+        if not schema:
+            return (
+                "No schema supplied; ingest the dataset to infer field roles "
+                "and the likely training task."
+            )
+        role_map = {str(field): _infer_field_role(str(field)) for field in schema}
+        roles = "; ".join(f"{field} -> {role}" for field, role in role_map.items())
+        role_values = set(role_map.values())
+        if {"instruction", "response"} <= role_values:
+            task = "instruction tuning (supervised fine-tuning)"
+        elif "label/target" in role_values:
+            task = "supervised classification or regression"
+        elif "text" in role_values or "instruction" in role_values:
+            task = "language modeling, embeddings, or retrieval"
+        else:
+            task = "exploratory analysis"
+        return f"Inferred field roles: {roles}. Most likely training task: {task}."
+
+    def _dataset_card(self, context: dict[str, Any]) -> str:
+        title = context.get("title", "Dataset")
+        rows = context.get("rows", "unknown")
+        columns = context.get("columns", "unknown")
+        schema = context.get("schema", {}) or {}
+        license_name = context.get("license", "unspecified")
+        quality = context.get("quality_score", "Unavailable")
+        tags = context.get("tags", []) or []
+        summary = context.get("summary") or context.get("ai_summary") or ""
+        field_lines = (
+            "\n".join(f"- `{name}`: {dtype}" for name, dtype in list(schema.items())[:20])
+            or "- (schema unavailable)"
+        )
+        tag_line = ", ".join(tags) if tags else "none"
+        default_summary = f"{title} contains {rows} records across {columns} columns."
+        return (
+            f"# {title}\n\n"
+            f"## Summary\n{summary or default_summary}\n\n"
+            f"## Composition\n- Records: {rows}\n- Columns: {columns}\n- Tags: {tag_line}\n\n"
+            f"## Schema\n{field_lines}\n\n"
+            f"## Licensing\n- Declared license: {license_name}\n"
+            "- Verify redistribution terms before commercial use.\n\n"
+            f"## Quality\n- Weighted quality score: {quality}\n\n"
+            "## Intended Use\nDiscovery, exploratory analysis, prototyping, and packaging.\n\n"
+            "## Limitations\nMetrics are computed by deterministic heuristics unless "
+            "live LLM mode is enabled; validate domain coverage before production training."
+        )
+
+    def _quality_narrative(self, context: dict[str, Any]) -> str:
+        metrics = context.get("metrics", {}) or {}
+        score = context.get("score", "Unavailable")
+        threshold = context.get("threshold")
+        profile = context.get("profile", "production")
+        if not metrics:
+            return (
+                f"Quality score {score} for the {profile} profile; per-dimension "
+                "metrics were not supplied."
+            )
+        ordered = sorted(
+            ((str(key), _as_float(value)) for key, value in metrics.items()),
+            key=lambda item: item[1],
+        )
+        weakest, strongest = ordered[0], ordered[-1]
+        verdict = ""
+        if isinstance(threshold, (int, float)) and isinstance(score, (int, float)):
+            meets = score >= threshold
+            tail = (
+                ""
+                if meets
+                else ", so search-first remediation or targeted generation is advised"
+            )
+            verdict = (
+                f" The dataset {'meets' if meets else 'falls short of'} the "
+                f"{profile} threshold of {threshold}{tail}."
+            )
+        return (
+            f"Overall weighted quality is {score} on a 0-100 scale for the "
+            f"{profile} profile. Strongest dimension: {strongest[0]} "
+            f"({_fmt(strongest[1])}). Weakest dimension: {weakest[0]} "
+            f"({_fmt(weakest[1])})." + verdict
+        )
+
+    def _search_intent(self, context: dict[str, Any]) -> str:
+        query = str(context.get("query", "")).strip()
+        if not query:
+            return "Empty query; provide search terms to expand intent."
+        tokens = _tokens(query)
+        expanded: list[str] = []
+        for token in tokens:
+            expanded.extend(_SYNONYMS.get(token, []))
+        domain = _guess_domain(tokens)
+        terms = sorted(set(tokens) | set(expanded))
+        filters: list[str] = []
+        if any(token in tokens for token in ("recent", "latest", "2024", "2025")):
+            filters.append("freshness=recent")
+        if domain != "general":
+            filters.append(f"domain={domain}")
+        return (
+            f"Normalized intent terms: {', '.join(terms)}. "
+            f"Likely domain: {domain}. "
+            f"Suggested filters: {', '.join(filters) if filters else 'none'}."
         )
 
 
@@ -123,13 +367,11 @@ class OpenAICompatibleProvider:
                     "role": "system",
                     "content": (
                         "You are DataForge's dataset intelligence layer. "
-                        "Return concise, decision-useful prose grounded only in the supplied context."
+                        "Return concise, decision-useful prose grounded only in "
+                        "the supplied context."
                     ),
                 },
-                {
-                    "role": "user",
-                    "content": self._prompt(request),
-                },
+                {"role": "user", "content": self._prompt(request)},
             ],
             "max_tokens": request.max_tokens,
             "temperature": 0.2,
@@ -170,8 +412,7 @@ class LLMOrchestrator:
         self.max_retries = max_retries or settings.max_retries
         self.cooldown_seconds = cooldown_seconds or settings.cooldown_seconds
         self.health: dict[str, ProviderHealth] = {
-            provider.name: ProviderHealth()
-            for provider in self.providers
+            provider.name: ProviderHealth() for provider in self.providers
         }
 
     def run(self, request: LLMRequest) -> LLMResponse:
@@ -183,17 +424,13 @@ class LLMOrchestrator:
             health = self.health.setdefault(provider.name, ProviderHealth())
             if not health.available(monotonic()):
                 attempts.append(
-                    {
-                        "provider": provider.name,
-                        "status": "skipped",
-                        "reason": "cooldown",
-                    }
+                    {"provider": provider.name, "status": "skipped", "reason": "cooldown"}
                 )
                 continue
             for attempt in range(1, self.max_retries + 1):
                 try:
                     text = provider.execute(request)
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 - recorded as an attempt
                     last_error = exc
                     health.failure_count += 1
                     attempts.append(
@@ -209,11 +446,7 @@ class LLMOrchestrator:
                     continue
                 health.success_count += 1
                 attempts.append(
-                    {
-                        "provider": provider.name,
-                        "attempt": attempt,
-                        "status": "success",
-                    }
+                    {"provider": provider.name, "attempt": attempt, "status": "success"}
                 )
                 return LLMResponse(
                     provider=provider.name,
@@ -248,17 +481,18 @@ class LLMOrchestrator:
                         timeout_seconds=settings.timeout_seconds,
                     )
                 )
-        if not providers:
-            providers.append(DeterministicSkillProvider())
+        # Deterministic provider is always the final safety net.
+        providers.append(DeterministicSkillProvider())
         return providers
 
     def status(self) -> dict[str, Any]:
         """Return provider priority and health state."""
+        active = self.providers[0].name if self.providers else None
         return {
             "provider_priority": [provider.name for provider in self.providers],
-            "active_provider": self.providers[0].name if self.providers else None,
+            "active_provider": active,
             "mode": "offline_deterministic"
-            if self.providers and self.providers[0].name == "local-deterministic"
+            if active == "local-deterministic"
             else "live_provider",
             "max_retries": self.max_retries,
             "cooldown_seconds": self.cooldown_seconds,
