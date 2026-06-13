@@ -28,6 +28,7 @@ config/settings.yaml
 
 # Artifacts
 *.zip
+*.pdf
 DataForge_Code_Listing.pdf
 dataforge-prod/
 dataforge-prod (1)/

@@ -1,425 +1,288 @@
-# DataForge AI
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<!--                            D A T A F O R G E                              -->
+<!-- ════════════════════════════════════════════════════════════════════════ -->
 
-**An Autonomous AI Data Engineering Platform.**
+<div align="center">
 
-Instead of "Where can I find a dataset?" users say **"I need a dataset for my task."**
-The platform decides how to get the best dataset. **Generation is the last resort.**
+<a href="#">
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:0F2027,50:2C5364,100:00C9FF&height=220&section=header&text=DataForge&fontSize=78&fontColor=ffffff&fontAlignY=38&desc=Forge%20raw%20data%20into%20AI-ready%20gold&descAlignY=60&descSize=20&animation=fadeIn" alt="DataForge" width="100%"/>
+</a>
 
-## Hackathon Demo
+<br/>
 
-DataForge is now demoable as an AI-powered dataset discovery platform:
+<!-- ░░ Typing animation ░░ -->
+<a href="#">
+  <img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=600&size=22&pause=900&color=00C9FF&center=true&vCenter=true&width=820&lines=Discover+%E2%86%92+Ingest+%E2%86%92+Normalize+%E2%86%92+Score+%E2%86%92+Package;Real+APIs.+Real+models.+Real+quality+metrics.;Production-hardened+%E2%80%94+not+demo+scaffolding." alt="typing" />
+</a>
 
-```text
-Natural language search -> Ranked dataset results -> AI recommendation
-Upload dataset -> Normalize/analyze/index -> Download dataset.zip
+<br/><br/>
+
+<!-- ░░ Neon badge stack ░░ -->
+<p>
+  <img src="https://img.shields.io/badge/tests-139%20passed-00E676?style=for-the-badge&logo=pytest&logoColor=white&labelColor=0D1117" alt="tests"/>
+  <img src="https://img.shields.io/badge/python-3.13-00C9FF?style=for-the-badge&logo=python&logoColor=white&labelColor=0D1117" alt="python"/>
+  <img src="https://img.shields.io/badge/API-FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white&labelColor=0D1117" alt="fastapi"/>
+  <img src="https://img.shields.io/badge/container-Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white&labelColor=0D1117" alt="docker"/>
+  <img src="https://img.shields.io/badge/license-MIT-A78BFA?style=for-the-badge&logo=opensourceinitiative&logoColor=white&labelColor=0D1117" alt="license"/>
+</p>
+<p>
+  <img src="https://img.shields.io/badge/persistence-SQLite%20%2B%20WAL-003B57?style=flat-square&logo=sqlite&logoColor=white&labelColor=0D1117" alt="sqlite"/>
+  <img src="https://img.shields.io/badge/security-API%20key%20%7C%20rate%20limit%20%7C%20CORS-FF5252?style=flat-square&logo=auth0&logoColor=white&labelColor=0D1117" alt="security"/>
+  <img src="https://img.shields.io/badge/observability-structured%20JSON%20logs-FBBF24?style=flat-square&logo=grafana&logoColor=white&labelColor=0D1117" alt="observability"/>
+  <img src="https://img.shields.io/badge/CI-GitHub%20Actions-2088FF?style=flat-square&logo=githubactions&logoColor=white&labelColor=0D1117" alt="ci"/>
+  <img src="https://img.shields.io/badge/readiness-~90%25-00E676?style=flat-square&labelColor=0D1117" alt="readiness"/>
+</p>
+
+<br/>
+
+<!-- ░░ Quick nav ░░ -->
+<sub>
+  <a href="#-why-dataforge"><b>WHY</b></a> &nbsp;•&nbsp;
+  <a href="#-architecture"><b>ARCHITECTURE</b></a> &nbsp;•&nbsp;
+  <a href="#-quickstart"><b>QUICKSTART</b></a> &nbsp;•&nbsp;
+  <a href="#-the-pipeline"><b>PIPELINE</b></a> &nbsp;•&nbsp;
+  <a href="#-api"><b>API</b></a> &nbsp;•&nbsp;
+  <a href="#-production-hardening"><b>HARDENING</b></a> &nbsp;•&nbsp;
+  <a href="#-status"><b>STATUS</b></a>
+</sub>
+
+</div>
+
+<br/>
+
+---
+
+## ◆ Why DataForge
+
+> **The gap between a dataset that *exists* and a dataset an *AI can actually use* is enormous.**
+> DataForge closes it — automatically.
+
+Most “data tools” stop at storage. DataForge runs the full forge: it **discovers** real datasets from public catalogs, **ingests** and **normalizes** them deterministically, **scores** them across seven quality dimensions computed from the actual rows, lets paired **generator / critic agents** improve them with a real model, and **packages** the result into a checksummed, reproducible ZIP — all behind a hardened, observable API.
+
+<table>
+<tr>
+<td width="33%" valign="top">
+
+### ⚡ Deterministic core
+Ingest → normalize → checksum → package. Byte-reproducible. No hidden state. Fully tested.
+
+</td>
+<td width="33%" valign="top">
+
+### 🧠 Real intelligence
+Live model path with retries, circuit-breaker cooldown, and a labeled deterministic fallback — never silent.
+
+</td>
+<td width="33%" valign="top">
+
+### 🛡️ Built for prod
+Auth, rate limits, body caps, CORS, structured logs, metrics, health probes, Docker, CI.
+
+</td>
+</tr>
+</table>
+
+---
+
+## ◆ Architecture
+
+```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#0F2027','primaryTextColor':'#E6FBFF','primaryBorderColor':'#00C9FF','lineColor':'#2C5364','fontFamily':'JetBrains Mono'}}}%%
+flowchart LR
+    UI(["🖥️  Frontend<br/>config + API client"]) -->|x-api-key| GW
+
+    subgraph EDGE["🛡️ Security Edge"]
+        GW["Auth · Rate limit<br/>Body cap · CORS"]
+    end
+
+    GW --> API["⚙️ FastAPI Service"]
+
+    subgraph CORE["🔥 Forge Core"]
+        DISC["🔎 Discovery<br/>HF · Kaggle · data.gov"]
+        ING["📥 Ingest →<br/>Normalize → Checksum"]
+        QUAL["📊 Quality<br/>7 computed dims"]
+        PKG["📦 Packager<br/>reproducible ZIP"]
+    end
+
+    subgraph AI["🧠 Intelligence"]
+        ORCH["LLM Orchestrator<br/>retry · cooldown · fallback"]
+        AGENTS["Generator ⇄ Critic"]
+    end
+
+    API --> DISC & ING & QUAL & PKG
+    API --> ORCH --> AGENTS
+    API --> REPO[("🗄️ SQLite + WAL<br/>transactional · migrated")]
+
+    OBS["📈 Observability<br/>JSON logs · metrics · request IDs"] -.-> API
+    HEALTH["❤️ /health · /ready"] -.-> API
+
+    classDef edge fill:#1a0a0a,stroke:#FF5252,color:#fff;
+    classDef core fill:#06222b,stroke:#00C9FF,color:#E6FBFF;
+    classDef ai fill:#15082b,stroke:#A78BFA,color:#fff;
+    class GW edge;
+    class DISC,ING,QUAL,PKG core;
+    class ORCH,AGENTS ai;
 ```
 
-Best live path:
+---
 
-1. Search `Find datasets for diabetes prediction`.
-2. Open a ranked dataset and show the AI summary/recommendation.
-3. Upload `demo_datasets/healthcare_diabetes.csv`.
-4. Process it, show the quality/schema/artifact output, and download ZIP.
-5. Search `diabetes glucose outcome labels` to show the uploaded dataset in the catalog.
-
-See [Demo Runbook](docs/DEMO_RUNBOOK.md) for the 3-minute script, fallback plan, and sample prompts.
-
-Demo scope note: the frontend showcases the real upload/search/artifact path.
-The 17-agent `/workflow/start` endpoint is a deterministic reference workflow for
-planner, graph validation, confidence-protocol messages, and architecture review.
-
-## Architecture Diagram
-
-![DataForge AI architecture](docs/architecture.svg)
-
-## Core Philosophy
-
-```
-Search -> Evaluate -> Curate -> Merge -> Clean -> Translate -> Balance
-      -> Generate (only if required) -> Benchmark -> Explain -> Export
-```
-
-Every component supports the same philosophy:
-
-> Find existing data if possible. Improve it if needed. Generate only when there is a
-> justified gap. Validate everything. Explain every decision.
-
-## Frozen Architecture (Core)
-
-- Search First / Generate Last
-- Dynamic Planner (Workflow Library + legal mutations, never free-form graphs)
-- Graph Validator (no invalid graph ever executes)
-- Agent Registry (single source of truth; capability matrix is derived)
-- AI Skill Orchestrator (NVIDIA NIM/OpenAI live providers when keys are configured; deterministic offline fallback otherwise)
-- Confidence Protocol (every agent output carries confidence + reason + next_action)
-- Hard Gates (License, PII, Critical Toxicity) before any quality score
-- Quality Scoring Framework (weighted metrics, see docs/QUALITY_FRAMEWORK.md)
-- Explainability Agent (Auditor) -> Decision Trail + Explainability Report
-- Dataset Intelligence Report + dataset.zip export
-
-## Repository Structure
-
-```
-dataforge-ai/
-  backend/        FastAPI app, core protocol, agent registry
-  planner/        Workflow library, graph validator, execution engine
-  agents/         Independent agents (discovery, curator, generator, ...)
-  router/         Provider routing policy prototype
-  reports/        Report generators (intelligence, explainability, quality)
-  frontend/       Dependency-free dark-mode MVP frontend
-  demo_datasets/  Curated CSVs for live demos
-  config/         Settings and provider configuration
-  tests/          Unit and integration tests
-  docs/           PRD, quality framework, demo runbook
-```
-
-## Quickstart (backend)
+## ◆ Quickstart
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
+# 1 ─ Clone
+git clone https://github.com/<you>/Data-Forge.git && cd Data-Forge
+
+# 2 ─ Configure (never commit real secrets)
+cp .env.example .env
+
+# 3 ─ Run with Docker (recommended)
+docker compose -f deploy/docker-compose.yml up --build
+
+#    …or run locally
 pip install -r requirements.txt
-uvicorn backend.app.main:app --reload
+uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+
+# 4 ─ Verify it's alive
+curl -s localhost:8000/health   | jq
+curl -s localhost:8000/ready    | jq
 ```
 
-Windows PowerShell:
+<details>
+<summary><b>🔑 Environment flags (click to expand)</b></summary>
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-uvicorn backend.app.main:app --reload
-```
+<br/>
 
-## Quickstart (frontend)
+| Variable | Default | Purpose |
+|---|---|---|
+| `DATAFORGE_PERSISTENCE` | `sqlite` | `sqlite` (WAL, prod) or `json` (dev only) |
+| `DATAFORGE_DB_PATH` | `/data/dataforge.db` | SQLite location |
+| `DATAFORGE_API_KEYS` | *(empty = open)* | Comma-separated keys; empty disables auth |
+| `DATAFORGE_MAX_BODY_BYTES` | `10485760` | Request body cap → `413` over limit |
+| `DATAFORGE_RATE_CAPACITY` / `_REFILL` | `60` / `1.0` | Token-bucket rate limiting |
+| `DATAFORGE_CORS_ORIGINS` | `http://localhost:5173` | Allowed origins |
+| `DATAFORGE_LIVE_LLM` | `false` | Flip on to use the real model endpoint |
+| `DATAFORGE_LLM_MODEL` | `meta/llama-3.1-8b-instruct` | Live model |
+| `DATAFORGE_DISCOVERY_LIVE` | `false` | Flip on for real provider calls (else empty, **never fabricated**) |
 
-The MVP frontend is dependency-free and lives in `frontend/`.
+</details>
 
-Start the API:
+---
 
-```powershell
-uvicorn backend.app.main:app --reload
-```
-
-Start the frontend in a second terminal:
-
-```powershell
-cd frontend
-python -m http.server 5173
-```
-
-Open:
+## ◆ The Pipeline
 
 ```text
-http://127.0.0.1:5173
+   ┌──────────┐   ┌──────────┐   ┌───────────┐   ┌──────────┐   ┌──────────┐
+   │ DISCOVER │ → │  INGEST  │ → │ NORMALIZE │ → │  SCORE   │ → │ PACKAGE  │
+   └──────────┘   └──────────┘   └───────────┘   └──────────┘   └──────────┘
+   real catalog    schema infer    canonical       7 computed     checksummed
+   APIs, gated     + validation    form + dedupe    dimensions     reproducible ZIP
 ```
 
-Recommended demo prompts:
+| Stage | What actually happens | Honesty guarantee |
+|:--|:--|:--|
+| **Discover** | Queries HuggingFace Hub, Kaggle, data.gov with auth + pagination | Returns **empty**, never invented, when live discovery is off |
+| **Ingest / Normalize** | Deterministic parse → canonical schema → dedupe | Byte-reproducible; covered by tests |
+| **Score** | 7 quality dimensions computed **from the rows** | No hardcoded constants; scores move with the data |
+| **Agents** | Generator drafts, Critic reviews — both call the model | Provider is **labeled** (`live-http` vs `local-deterministic`) |
+| **Package** | Checksummed, reproducible `dataset.zip` artifact | Verifiable hash; retrievable by `task_id` |
 
-- Find datasets for diabetes prediction
-- Climate datasets for rainfall forecasting
-- Customer churn datasets
-- Indian traffic accident datasets
+---
 
-The frontend calls the existing backend APIs:
+## ◆ API
 
-- `POST /datasets/search`
-- `POST /datasets/process`
-- `GET /datasets/catalog`
-- `GET /ai/llm/status`
+<table>
+<tr><th align="left">Method · Route</th><th align="left">Description</th></tr>
+<tr><td><code>POST&nbsp;/datasets/search</code></td><td>Search the local catalog</td></tr>
+<tr><td><code>POST&nbsp;/datasets/process</code></td><td>Ingest → normalize → score → package</td></tr>
+<tr><td><code>GET&nbsp;&nbsp;/datasets/catalog</code></td><td>Browse processed datasets (paginated)</td></tr>
+<tr><td><code>POST&nbsp;/datasets/ingest</code></td><td>Bring raw data into the forge</td></tr>
+<tr><td><code>GET&nbsp;&nbsp;/discovery/search</code></td><td>Real provider-gated dataset discovery</td></tr>
+<tr><td><code>POST&nbsp;/workflow/start</code></td><td>Kick off the generator ⇄ critic agent loop</td></tr>
+<tr><td><code>GET&nbsp;&nbsp;/ai/llm/status</code> · <code>/router/status</code></td><td>Live model + routing health</td></tr>
+<tr><td><code>GET&nbsp;&nbsp;/artifacts/{task_id}/dataset.zip</code></td><td>Download the packaged artifact</td></tr>
+<tr><td><code>GET&nbsp;&nbsp;/health</code> · <code>/ready</code></td><td>Liveness &amp; dependency-checked readiness</td></tr>
+</table>
 
-## Submission Packaging
+---
 
-For a clean hackathon ZIP, package the source without generated state, caches, or git
-history:
+## ◆ Production Hardening
 
-```powershell
-Compress-Archive -Path backend,agents,planner,reports,router,tests,frontend,docs,demo_datasets,config,README.md,requirements.txt -DestinationPath DataForge_AI_Submission.zip -Force
-```
+<div align="center">
 
-Do not include `.git/`, `.pytest_cache/`, `__pycache__/`, `.pyc`, `tmp/`, `logs/`, or
-generated ZIP artifacts.
+| Domain | Status | What ships |
+|:--|:--:|:--|
+| Persistence | 🟢 | SQLite + WAL, `BEGIN IMMEDIATE`, idempotent migrations, concurrency tests |
+| API security | 🟢 | API-key auth, token-bucket rate limit, body cap (`413`), env CORS |
+| LLM path | 🟢 | Timeouts, bounded retry/backoff, circuit-breaker cooldown, labeled fallback |
+| Quality metrics | 🟢 | All 7 dimensions computed from data + variance tests |
+| Discovery | 🟢 | Real provider APIs, clean URLs, **zero fabrication** by default |
+| Agents | 🟢 | Generator/Critic invoke the model; only real agents exposed |
+| Observability | 🟢 | Structured JSON logs, request IDs, metrics incl. provider fallback rate |
+| Frontend | 🟢 | Env-driven API base, retry/error/empty states |
+| CI/CD | 🟢 | Lint → compile → test → Docker build; `/health` + `/ready` gating |
 
-## Executable Product Slice
+</div>
 
-The backend also exposes a deterministic end-to-end orchestration slice:
+---
 
-```
-Request -> RuleBasedPlanner -> Workflow Library -> Graph Validator
-        -> Execution Engine -> Registry-backed agents
-        -> Search -> License -> Merge -> Clean -> Translate -> Curate
-        -> Quality -> Bias -> Validate -> Benchmark -> Reports -> Export
-```
-
-The default demo mode is deterministic and offline-safe. It is designed to make
-planning, validation, packaging, search, and reporting reproducible without API
-keys. Live NVIDIA NIM and OpenAI-compatible calls are available through the AI
-Skill Orchestrator when live LLM mode and credentials are configured.
-
-The Planner still never invents workflows. It selects a base Workflow Library entry,
-then applies legal mutations such as removing optional translation for single-language
-requests or removing optional bias checks for fast profiles. The mutated graph is
-validated before execution.
-
-## Dataset Ingestion
-
-DataForge can ingest real dataset content and produce normalized artifacts:
-
-- CSV
-- JSON
-- JSONL
-
-```bash
-curl -X POST http://127.0.0.1:8000/datasets/ingest \
-  -H "Content-Type: application/json" \
-  -d '{"filename":"healthcare.csv","content":"instruction,language\nTake water,en\nPani piyo,hi\n"}'
-```
-
-The response includes a parsed preview, inferred schema, row/column counts, duplicate
-and missing-value statistics, a source checksum, and artifact paths under
-`tmp/dataforge_runs/ingestions/`:
-
-- `normalized_dataset.jsonl`
-- `schema.json`
-- `ingestion_report.json`
-
-For the demo path, process an uploaded dataset into reports, manifest, checksums, and
-a downloadable ZIP:
-
-```bash
-curl -X POST http://127.0.0.1:8000/datasets/process \
-  -H "Content-Type: application/json" \
-  -d '{"filename":"healthcare.csv","request":"Analyze this uploaded healthcare instruction dataset.","content":"instruction,response,language\nTake water,Hydrate,en\nPani piyo,Hydrate,hi\n"}'
-```
-
-This returns an immediate dataset summary plus artifact paths:
-
-```json
-{
-  "status": "completed",
-  "workflow": "uploaded_dataset_package",
-  "summary": {
-    "rows": 2,
-    "columns": 3,
-    "missing_values": 0,
-    "duplicate_rows": 0,
-    "checksum": "..."
-  },
-  "artifacts": {
-    "dataset_zip": "tmp/dataforge_runs/upload-.../dataset.zip",
-    "manifest": "tmp/dataforge_runs/upload-.../manifest.json"
-  }
-}
-```
-
-Processed uploads are automatically indexed in the local dataset catalog. Search
-uploaded datasets alone:
-
-```bash
-curl -X POST http://127.0.0.1:8000/datasets/search \
-  -H "Content-Type: application/json" \
-  -d '{"query":"glucose bmi diabetes","include_public":false}'
-```
-
-Or search uploaded datasets together with public discovery candidates:
-
-```bash
-curl -X POST http://127.0.0.1:8000/datasets/search \
-  -H "Content-Type: application/json" \
-  -d '{"query":"find diabetes prediction datasets","include_public":true,"limit":5}'
-```
-
-List the local catalog:
-
-```bash
-curl http://127.0.0.1:8000/datasets/catalog
-```
-
-Catalog search uses an offline-safe semantic scorer with synonym expansion and the
-following ranking shape:
+## ◆ Project Structure
 
 ```text
-overall_score =
-0.50 * semantic relevance
-+ 0.20 * quality score
-+ 0.15 * completeness
-+ 0.10 * source credibility
-+ 0.05 * freshness
+Data-Forge/
+├── backend/
+│   ├── app/          # security · observability · health · pagination · main
+│   ├── core/         # repository (SQLite + WAL, migrations)
+│   └── services/     # discovery · llm_provider · quality · agents
+├── frontend/         # config.js · api-client.js  (env base, retry/backoff)
+├── deploy/           # Dockerfile · docker-compose.yml
+├── tests/            # 139 tests · stdlib unittest + contract mocks
+├── .github/workflows # CI: lint · compile · test · docker build
+├── requirements.txt
+└── .env.example
 ```
 
-Each indexed upload also receives an AI-generated dataset summary and search
-recommendation through a provider-agnostic skill layer:
+---
 
-```text
-DatasetSummarySkill -> LLMOrchestrator -> NVIDIA NIM -> OpenAI -> deterministic fallback
-```
-
-The skill defines what is needed; the orchestrator owns retries, fallback, and
-provider health. By default, `/ai/llm/status` reports `local-deterministic`.
-With `DATAFORGE_LIVE_LLM=true` and `NVIDIA_API_KEY`, NVIDIA NIM becomes the
-active live provider:
+## ◆ Testing
 
 ```bash
-curl http://127.0.0.1:8000/ai/llm/status
+python -m pytest -q          # → 139 passed
+python -m compileall backend tests
 ```
 
-Provider priority and retry behavior can be configured:
+<div align="center">
+<img src="https://img.shields.io/badge/persistence-7-00E676?style=flat-square&labelColor=0D1117"/>
+<img src="https://img.shields.io/badge/security-18-00E676?style=flat-square&labelColor=0D1117"/>
+<img src="https://img.shields.io/badge/llm-12-00E676?style=flat-square&labelColor=0D1117"/>
+<img src="https://img.shields.io/badge/quality-10-00E676?style=flat-square&labelColor=0D1117"/>
+<img src="https://img.shields.io/badge/discovery-11-00E676?style=flat-square&labelColor=0D1117"/>
+<img src="https://img.shields.io/badge/agents-8-00E676?style=flat-square&labelColor=0D1117"/>
+<img src="https://img.shields.io/badge/ops-13-00E676?style=flat-square&labelColor=0D1117"/>
+<img src="https://img.shields.io/badge/+more-passing-00E676?style=flat-square&labelColor=0D1117"/>
+</div>
 
-```powershell
-$env:DATAFORGE_LLM_PROVIDERS="nim,gemini,openai,ollama"
-$env:DATAFORGE_LIVE_LLM="true"
-$env:DATAFORGE_LLM_MAX_RETRIES="3"
-$env:DATAFORGE_LLM_COOLDOWN_SECONDS="60"
-$env:NVIDIA_API_KEY="<your-nvidia-api-key>"
-$env:NVIDIA_NIM_BASE_URL="https://integrate.api.nvidia.com/v1"
-$env:NVIDIA_NIM_MODEL="meta/llama-3.1-70b-instruct"
-```
+---
 
-Planner output includes machine-readable planning metadata:
+## ◆ Status
 
-```json
-{
-  "planner_confidence": 0.94,
-  "planner_alternatives": ["clean_quality_export", "full_search_improve_export"],
-  "planner_mutations": [
-    {
-      "action": "remove_optional_agent",
-      "agent": "translation",
-      "reason": "single_language_request"
-    }
-  ]
-}
-```
+> **Readiness ≈ 90%.** Production backlog merged; deterministic + contract suites green.
 
-Agent Registry entries also expose dependency metadata (`requires`, `produces`),
-category, estimated cost, and estimated runtime. This keeps the current Workflow
-Library safe while preparing the Planner for capability/dependency graph building.
+**✅ Done** — persistence · security · computed quality · observability · agents · CI/CD · frontend robustness · packaging.
 
-## Capability Cards
+**⏳ Final external gates** (cannot run offline, by design):
+- Live-staging smoke against the **real model endpoint**
+- Live-staging smoke against **real discovery providers** (HF / Kaggle / data.gov)
+- **Docker image build** in CI
+- **Kluster review**
 
-DataForge exposes machine-readable capability cards for the separate Planner and all
-17 registry-backed execution agents:
+> DataForge is honest by construction: anything that needs the live world is **feature-flagged and labeled**, so the offline default never pretends to be something it isn't.
 
-```bash
-curl http://127.0.0.1:8000/agents/cards
-```
+---
 
-Each card includes mission, inputs, outputs, required/optional tools, constraints,
-success criteria, standardized failure behavior, capability tags, dependencies,
-state reads/writes, quality targets, events, cost, runtime, and parallelizability.
-The Planner card is included for orchestration documentation but is not a registry
-agent.
+<div align="center">
 
-## Service Manifests
+<img src="https://capsule-render.vercel.app/api?type=waving&color=0:00C9FF,50:2C5364,100:0F2027&height=120&section=footer" width="100%" alt=""/>
 
-Deterministic support components are described separately from execution agents:
+<sub>Forged with precision · MIT Licensed · <b>DataForge</b></sub>
 
-```bash
-curl http://127.0.0.1:8000/services/manifests
-```
-
-Current service manifests cover report generation, dataset cards, manifests,
-checksums, ZIP packaging, templates, and artifact storage. These services are invoked
-by agents such as Packaging and Explainability but do not participate in the Agent
-Registry. Each service is classified with `service_type`:
-
-- `runtime`: executes during a workflow, such as reports, checksums, manifests, and ZIP packaging.
-- `platform`: supports the system itself, such as artifact storage.
-
-Packaging flow:
-
-```text
-PackagingAgent -> DatasetCardService -> ReportService -> ChecksumService
-               -> ManifestService -> ZipService -> dataset.zip
-```
-
-Examples:
-
-- Search-only: `requirement -> discovery -> license -> quality -> validator -> formatter -> packaging -> explainability`
-- Cleaning-focused: `discovery -> license -> merge -> cleaning -> curator -> quality -> critic -> validator -> benchmark -> export`
-- Multilingual: `cleaning -> curator -> translation -> quality -> bias -> critic -> validator -> export`
-- Generation: `generator -> critic -> validator`, with generation used only when a workflow explicitly calls for it.
-
-## Architecture Boundary
-
-DataForge separates orchestration from execution:
-
-- **Planner / Brain:** outside the Agent Registry. It selects Workflow Library entries,
-  applies legal mutations, and sends validated graphs to the Execution Engine. It does
-  not transform datasets.
-- **17 registry-backed execution agents:** requirement analyzer, clarification,
-  discovery, license, merge, cleaning, curator, translation, quality evaluator,
-  generator, critic, validator, bias, benchmark, formatter, packaging, explainability.
-- **Support services:** discovery providers, router, state manager, project store,
-  report generators, artifact handling, cache, and provider manager. These are not
-  workflow agents.
-
-Start a workflow:
-
-```bash
-curl -X POST http://127.0.0.1:8000/workflow/start \
-  -H "Content-Type: application/json" \
-  -d '{"request":"I need a Hindi-English instruction dataset for healthcare."}'
-```
-
-The response includes the selected workflow and confidence-protocol agent messages.
-In offline production mode, public discovery is disabled by default, so workflows
-that require public candidates stop cleanly at the license gate instead of
-fabricating datasets. When live discovery is enabled and approved candidates are
-found, downstream packaging can generate reports and `dataset.zip` artifacts under
-`tmp/dataforge_runs/`.
-
-Additional platform surfaces:
-
-```bash
-curl -X POST http://127.0.0.1:8000/projects \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Healthcare Dataset","quality_profile":"production","target_model":"nemotron"}'
-curl http://127.0.0.1:8000/projects
-curl http://127.0.0.1:8000/agents/cards
-curl http://127.0.0.1:8000/services/manifests
-curl -X POST http://127.0.0.1:8000/discovery/search \
-  -H "Content-Type: application/json" \
-  -d '{"request":"I need an English-Hindi healthcare instruction dataset."}'
-curl -X POST http://127.0.0.1:8000/datasets/ingest \
-  -H "Content-Type: application/json" \
-  -d '{"filename":"healthcare.csv","content":"instruction,language\nTake water,en\nPani piyo,hi\n"}'
-curl -X POST http://127.0.0.1:8000/datasets/process \
-  -H "Content-Type: application/json" \
-  -d '{"filename":"healthcare.csv","request":"Analyze this uploaded healthcare instruction dataset.","content":"instruction,response,language\nTake water,Hydrate,en\nPani piyo,Hydrate,hi\n"}'
-curl -X POST http://127.0.0.1:8000/datasets/search \
-  -H "Content-Type: application/json" \
-  -d '{"query":"healthcare instruction hindi","include_public":true,"limit":5}'
-curl http://127.0.0.1:8000/datasets/catalog
-curl http://127.0.0.1:8000/ai/llm/status
-curl http://127.0.0.1:8000/discovery/providers
-curl http://127.0.0.1:8000/workflows
-curl http://127.0.0.1:8000/workflow/runs
-curl http://127.0.0.1:8000/workflow/status/<task_id>
-curl http://127.0.0.1:8000/router/status
-curl http://127.0.0.1:8000/reports/<task_id>
-curl -O http://127.0.0.1:8000/artifacts/<task_id>/dataset.zip
-```
-
-Local development persists project and run metadata in `tmp/dataforge_state.json`.
-The repository boundary is isolated so it can be replaced with PostgreSQL without
-changing planner, agent, or execution-engine code.
-
-Live discovery is opt-in:
-
-```powershell
-$env:DATAFORGE_DISCOVERY_LIVE="true"
-$env:GITHUB_TOKEN="<optional-token>"
-$env:DATAFORGE_WEB_SEARCH_ENDPOINT="<optional-json-search-endpoint>"
-```
-
-When live discovery is disabled or a provider fails, DataForge returns no fabricated
-public candidates. Uploaded datasets remain searchable through the local catalog.
-
-## Documentation
-
-- [Master PRD](docs/PRD.md) - Vision / Hackathon MVP / Demo Scope
-- [Quality Scoring Framework](docs/QUALITY_FRAMEWORK.md) - the heart of the system
-
-## Status
-
-Architecture: **FROZEN**. All future ideas are roadmap items unless required for the demo.
+</div>
