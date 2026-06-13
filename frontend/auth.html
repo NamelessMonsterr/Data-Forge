@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DataForge - Sign in</title>
+    <meta name="description" content="Sign in or create a DataForge account to forge and manage your own datasets." />
+    <meta name="dataforge-api-base" content="http://127.0.0.1:8000" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body data-page="auth">
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="index.html" aria-label="DataForge home">
+          <span class="brand-mark" aria-hidden="true">DF</span><span>DataForge</span>
+        </a>
+        <nav class="nav" aria-label="Primary">
+          <a href="index.html">Discover</a>
+          <a href="forge.html">Forge</a>
+          <a href="catalog.html">Catalog</a>
+        </nav>
+        <div class="account" id="accountBox"></div>
+      </header>
+
+      <main>
+        <section class="auth-wrap">
+          <div class="auth-card">
+            <span class="eyebrow">DataForge account</span>
+            <h1 class="auth-title">Welcome</h1>
+            <p class="auth-subtitle" id="authSubtitle"></p>
+
+            <div class="auth-tabs" role="tablist" aria-label="Authentication mode">
+              <button class="auth-tab" id="tabLogin" type="button" role="tab" aria-pressed="true">Log in</button>
+              <button class="auth-tab" id="tabRegister" type="button" role="tab" aria-pressed="false">Register</button>
+            </div>
+
+            <form class="auth-form" id="authForm" novalidate>
+              <div class="field">
+                <label for="authEmail">Email</label>
+                <input id="authEmail" type="email" autocomplete="username" placeholder="you@example.com" />
+              </div>
+              <div class="field">
+                <label for="authPassword">Password</label>
+                <input id="authPassword" type="password" autocomplete="current-password" placeholder="********" />
+              </div>
+              <p class="auth-hint" id="authHint"></p>
+              <button class="button primary auth-submit" id="authSubmit" type="submit">Log in</button>
+              <p class="auth-message" id="authMessage" role="status"></p>
+            </form>
+
+            <p class="auth-foot"><a href="index.html"><- Back to Discover</a></p>
+          </div>
+        </section>
+      </main>
+
+      <footer class="foot">
+        <span>DataForge - Account</span>
+        <span>Backend auth - HTTP-only session</span>
+      </footer>
+    </div>
+
+    <div class="toast" id="toast" role="status"></div>
+    <script src="config.js"></script>
+    <script src="api-client.js"></script>
+    <script src="app.js" defer></script>
+  </body>
+</html>

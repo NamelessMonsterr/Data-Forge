@@ -31,7 +31,11 @@ class DatasetCatalogService:
         self.orchestrator = orchestrator or LLMOrchestrator()
         self.encoder = encoder or SemanticTextEncoder()
 
-    def index_processed_upload(self, result: dict[str, Any]) -> DatasetCatalogRecord:
+    def index_processed_upload(
+        self,
+        result: dict[str, Any],
+        user_id: str | None = None,
+    ) -> DatasetCatalogRecord:
         """Create a searchable catalog record from a processed upload response."""
         ingestion = result["ingestion"]
         upload_summary = result["summary"]
@@ -88,19 +92,38 @@ class DatasetCatalogService:
             created_at=utc_now(),
             ai_summary=ai_summary.text,
             ai_provider=ai_summary.provider,
+            user_id=user_id,
         )
         return self.repository.save_dataset(record)
 
-    def list_datasets(self) -> list[dict[str, Any]]:
+    def list_datasets(self, user_id: str | None = None) -> list[dict[str, Any]]:
         """Return catalog records as serializable dictionaries."""
-        return [self._record_to_dict(record) for record in self.repository.list_datasets()]
+        records = self.repository.list_datasets()
+        if user_id is not None:
+            records = [record for record in records if record.user_id == user_id]
+        return [self._record_to_dict(record) for record in records]
 
-    def search(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
+    def search(
+        self,
+        query: str,
+        limit: int = 10,
+        user_id: str | None = None,
+        allowed_dataset_ids: set[str] | None = None,
+    ) -> list[dict[str, Any]]:
         """Return local catalog results ranked by query relevance."""
         query_tokens = self._tokens(query)
+        records = self.repository.list_datasets()
+        if user_id is not None:
+            records = [record for record in records if record.user_id == user_id]
+        if allowed_dataset_ids is not None:
+            records = [
+                record
+                for record in records
+                if record.dataset_id in allowed_dataset_ids
+            ]
         scored = [
             self._score_record(record, query_tokens)
-            for record in self.repository.list_datasets()
+            for record in records
         ]
         ranked = sorted(
             [result for result in scored if result["relevance_score"] > 0 or not query_tokens],
@@ -187,6 +210,7 @@ class DatasetCatalogService:
             "ai_summary": record.ai_summary,
             "ai_provider": record.ai_provider,
             "created_at": record.created_at,
+            "user_id": record.user_id,
         }
 
     def _tags(
@@ -293,9 +317,16 @@ class UnifiedDatasetSearchService:
         include_public: bool = False,
         limit: int = 10,
         intensity: str = "medium",
+        user_id: str | None = None,
+        allowed_dataset_ids: set[str] | None = None,
     ) -> dict[str, Any]:
         """Return merged local and public dataset results."""
-        local = self.catalog.search(query, limit=limit)
+        local = self.catalog.search(
+            query,
+            limit=limit,
+            user_id=user_id,
+            allowed_dataset_ids=allowed_dataset_ids,
+        )
         public = self._public_results(query, limit, intensity) if include_public else []
         merged = sorted(
             [*local, *public],

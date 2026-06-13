@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>DataForge - Discover</title>
+    <title>DataForge · Discover</title>
     <meta name="description" content="Discover datasets across real providers with tunable search intensity." />
     <!-- Point the frontend at your API (defaults to same-origin /api). -->
     <meta name="dataforge-api-base" content="http://127.0.0.1:8000" />
@@ -19,15 +19,17 @@
           <a href="index.html" aria-current="page">Discover</a>
           <a href="forge.html">Forge</a>
           <a href="catalog.html">Catalog</a>
+          <a href="teams.html">Teams</a>
         </nav>
-        <button class="provider" id="providerStatus" data-mode="offline" type="button">AI - Offline</button>
+        <button class="provider" id="providerStatus" data-mode="offline" type="button">AI · Offline</button>
+        <div class="account" id="accountBox"></div>
       </header>
 
       <main>
         <section class="page-head">
           <span class="eyebrow">Dataset discovery engine</span>
-          <h1>Find the <em>right</em> dataset - at the depth you choose.</h1>
-          <p>Search across real providers (HuggingFace, Kaggle, data.gov). Dial up the search intensity to make the engine work harder and cast a wider net - it costs more time but never invents results.</p>
+          <h1>Find the <em>right</em> dataset — at the depth you choose.</h1>
+          <p>Search across real providers (HuggingFace, Kaggle, data.gov). Dial up the search intensity to make the engine work harder and cast a wider net — it costs more time but never invents results.</p>
         </section>
 
         <form class="cmdbar" id="searchForm">
@@ -37,7 +39,7 @@
         </form>
 
         <section class="intensity" aria-label="Search intensity">
-          <div class="intensity-label">Search intensity - <b id="intensityName">Medium</b></div>
+          <div class="intensity-label">Search intensity — <b id="intensityName">Medium</b></div>
           <div class="intensity-track" id="intensityTrack" role="group" aria-label="Choose search intensity">
             <button type="button" class="intensity-step" data-level="easy" aria-pressed="false"><span class="dots"><i></i></span>Easy</button>
             <button type="button" class="intensity-step" data-level="medium" aria-pressed="true"><span class="dots"><i></i><i></i></span>Medium</button>
@@ -64,8 +66,8 @@
       </main>
 
       <footer class="foot">
-        <span>DataForge - Discover</span>
-        <span>Real providers - zero fabrication</span>
+        <span>DataForge · Discover</span>
+        <span>Real providers · zero fabrication</span>
       </footer>
     </div>
 

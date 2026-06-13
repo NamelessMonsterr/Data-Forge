@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>DataForge - Forge</title>
+    <title>DataForge · Forge</title>
     <meta name="description" content="Upload raw data and forge it into a normalized, scored, packaged dataset." />
     <meta name="dataforge-api-base" content="http://127.0.0.1:8000" />
     <link rel="stylesheet" href="styles.css" />
@@ -18,22 +18,24 @@
           <a href="index.html">Discover</a>
           <a href="forge.html" aria-current="page">Forge</a>
           <a href="catalog.html">Catalog</a>
+          <a href="teams.html">Teams</a>
         </nav>
-        <button class="provider" id="providerStatus" data-mode="offline" type="button">AI - Offline</button>
+        <button class="provider" id="providerStatus" data-mode="offline" type="button">AI · Offline</button>
+        <div class="account" id="accountBox"></div>
       </header>
 
       <main>
         <section class="page-head">
-          <span class="eyebrow">Ingest -> normalize -> score -> package</span>
+          <span class="eyebrow">Ingest → normalize → score → package</span>
           <h1>Forge raw data into an <em>AI-ready</em> artifact.</h1>
-          <p>Drop a CSV, JSON, or JSONL file. DataForge infers the schema, normalizes the rows, computes real quality metrics, and packages a checksummed, reproducible ZIP - then indexes it in your catalog.</p>
+          <p>Drop a CSV, JSON, or JSONL file. DataForge infers the schema, normalizes the rows, computes real quality metrics, and packages a checksummed, reproducible ZIP — then indexes it in your catalog.</p>
         </section>
 
         <div class="split">
           <form class="panel" id="uploadForm">
             <label class="dropzone" id="dropZone" for="datasetFile">
               <h3>Drop your dataset here</h3>
-              <p id="dropHint">CSV - JSON - JSONL - or click to browse</p>
+              <p id="dropHint">CSV · JSON · JSONL — or click to browse</p>
               <input id="datasetFile" type="file" accept=".csv,.json,.jsonl,.txt" />
             </label>
             <div class="field">
@@ -52,8 +54,8 @@
       </main>
 
       <footer class="foot">
-        <span>DataForge - Forge</span>
-        <span>Deterministic - checksummed - reproducible</span>
+        <span>DataForge · Forge</span>
+        <span>Deterministic · checksummed · reproducible</span>
       </footer>
     </div>
 

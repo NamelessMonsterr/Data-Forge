@@ -7,9 +7,12 @@ and builds canonical URLs from real identifiers. Network access is gated behind
 result with a clear note rather than inventing datasets. The HTTP client is
 injectable so providers are contract-tested without network or secrets.
 
-Search intensity controls how much real provider work is attempted. Higher
-levels consult more providers and request more candidates per provider; it never
-fabricates fallback results.
+Search intensity
+----------------
+The caller picks how hard the engine should work: ``easy`` -> ``intense``. Higher
+intensity consults more providers and fetches more candidates per provider, so it
+costs more time but casts a wider net. Intensity never fabricates results — it
+only changes how much real work is done.
 """
 
 from __future__ import annotations
@@ -27,19 +30,20 @@ class DiscoveryError(Exception):
     pass
 
 
+# ── Search intensity profiles ────────────────────────────────────────────────
 INTENSITY_ORDER = ("easy", "medium", "hard", "very_hard", "intense")
 DEFAULT_INTENSITY = "medium"
 INTENSITY_PROFILES: dict[str, dict[str, Any]] = {
-    "easy": {"limit": 5, "providers": 1, "label": "Easy"},
-    "medium": {"limit": 12, "providers": 2, "label": "Medium"},
-    "hard": {"limit": 25, "providers": 3, "label": "Hard"},
-    "very_hard": {"limit": 50, "providers": 3, "label": "Very Hard"},
-    "intense": {"limit": 100, "providers": 3, "label": "Intense"},
+    "easy":      {"limit": 5,   "providers": 1, "label": "Easy"},
+    "medium":    {"limit": 12,  "providers": 2, "label": "Medium"},
+    "hard":      {"limit": 25,  "providers": 3, "label": "Hard"},
+    "very_hard": {"limit": 50,  "providers": 3, "label": "Very Hard"},
+    "intense":   {"limit": 100, "providers": 3, "label": "Intense"},
 }
 
 
 def resolve_intensity(name: str | None) -> str:
-    """Normalize a user-supplied intensity to a known key."""
+    """Normalize a user-supplied intensity to a known key (defaults to medium)."""
     key = (name or "").strip().lower().replace(" ", "_").replace("-", "_")
     return key if key in INTENSITY_PROFILES else DEFAULT_INTENSITY
 
@@ -99,9 +103,18 @@ class HuggingFaceProvider(_BaseProvider):
     API = "https://huggingface.co/api/datasets"
     WEB = "https://huggingface.co/datasets/"
 
+    def __init__(self, client: HttpClient | None = None, timeout: float = 15.0,
+                 token: str | None = None) -> None:
+        super().__init__(client, timeout)
+        # Optional per-user/global access token. Unauthenticated calls still
+        # work but are more rate-limited. Resolved by
+        # backend.services.credentials.huggingface_token_for.
+        self.token = token or ""
+
     def search(self, query: str, limit: int = 10) -> list[DatasetRef]:
         params = urllib.parse.urlencode({"search": query, "limit": limit, "full": "true"})
-        data = self._get_json(self.API + "?" + params)
+        headers = {"Authorization": f"Bearer {self.token}"} if self.token else None
+        data = self._get_json(self.API + "?" + params, headers)
         if not isinstance(data, list):
             raise DiscoveryError("huggingface: unexpected response shape")
         refs: list[DatasetRef] = []
@@ -163,11 +176,18 @@ class KaggleProvider(_BaseProvider):
     WEB = "https://www.kaggle.com/datasets/"
 
     def __init__(self, client: HttpClient | None = None, timeout: float = 15.0,
-                 env: dict[str, str] | None = None) -> None:
+                 env: dict[str, str] | None = None,
+                 username: str | None = None, key: str | None = None) -> None:
         super().__init__(client, timeout)
-        env = env if env is not None else dict(os.environ)
-        self.username = env.get("KAGGLE_USERNAME", "")
-        self.key = env.get("KAGGLE_KEY", "")
+        # Explicit creds (e.g. resolved per-user from the vault) win; otherwise
+        # fall back to environment variables for a global/admin deployment.
+        if username is not None or key is not None:
+            self.username = username or ""
+            self.key = key or ""
+        else:
+            env = env if env is not None else dict(os.environ)
+            self.username = env.get("KAGGLE_USERNAME", "")
+            self.key = env.get("KAGGLE_KEY", "")
 
     @property
     def configured(self) -> bool:
@@ -211,16 +231,12 @@ class DiscoveryService:
             KaggleProvider(env=env),
         ]
 
-    def search(
-        self,
-        query: str,
-        intensity: str = DEFAULT_INTENSITY,
-        limit: int | None = None,
-    ) -> dict[str, Any]:
+    def search(self, query: str, intensity: str = DEFAULT_INTENSITY,
+               limit: int | None = None) -> dict[str, Any]:
         level = resolve_intensity(intensity)
         profile = INTENSITY_PROFILES[level]
         per_provider = int(limit) if limit is not None else int(profile["limit"])
-        active_providers = self.providers[: int(profile["providers"])]
+        active = self.providers[: int(profile["providers"])]
 
         if not self.live:
             return {
@@ -231,11 +247,12 @@ class DiscoveryService:
                 "results": [],
                 "note": "Discovery disabled. Set DATAFORGE_DISCOVERY_LIVE=true to enable real provider search.",
             }
+
         results: list[DatasetRef] = []
         errors: list[str] = []
         seen: set[str] = set()
         providers_used: list[str] = []
-        for provider in active_providers:
+        for provider in active:
             providers_used.append(provider.name)
             try:
                 for ref in provider.search(query, per_provider):
@@ -262,4 +279,8 @@ class DiscoveryService:
         return {
             "live": self.live,
             "providers": [provider.name for provider in self.providers],
+            "configured": {
+                provider.name: bool(getattr(provider, "configured", True))
+                for provider in self.providers
+            },
         }

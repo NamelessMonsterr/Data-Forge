@@ -33,6 +33,14 @@ DataForge_Code_Listing.pdf
 dataforge-prod/
 dataforge-prod (1)/
 dataforge-prod (2)/
+dataforge-prod (3)/
+dataforge-auth-ui/
+dataforge-vault/
+dataforge-vault-503/
+dataforge-vault-live/
+dataforge-teams-rbac/
+dataforge-teams-ui/
+.codex-*.log
 data/
 tmp/
 logs/

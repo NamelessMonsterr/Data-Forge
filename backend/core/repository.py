@@ -44,6 +44,7 @@ class ProjectRecord:
     quality_profile: str
     target_model: str
     created_at: str
+    user_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,7 @@ class RunRecord:
     artifacts: dict[str, str]
     created_at: str
     completed_at: str | None = None
+    user_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -85,6 +87,7 @@ class DatasetCatalogRecord:
     quality_narrative: str = ""
     quality_metrics: dict[str, Any] = field(default_factory=dict)
     dataset_card: str = ""
+    user_id: str | None = None
 
 
 @dataclass
@@ -167,6 +170,7 @@ class JsonRepository:
         name: str,
         quality_profile: str = "production",
         target_model: str = "nemotron",
+        user_id: str | None = None,
     ) -> ProjectRecord:
         snapshot = self._load()
         project = ProjectRecord(
@@ -176,6 +180,7 @@ class JsonRepository:
             quality_profile=quality_profile,
             target_model=target_model,
             created_at=utc_now(),
+            user_id=user_id,
         )
         snapshot.projects[project.project_id] = project
         self._save(snapshot)
@@ -354,6 +359,7 @@ class SqlRepository:
         name: str,
         quality_profile: str = "production",
         target_model: str = "nemotron",
+        user_id: str | None = None,
     ) -> ProjectRecord:
         project = ProjectRecord(
             project_id=f"project-{uuid4().hex[:12]}",
@@ -362,6 +368,7 @@ class SqlRepository:
             quality_profile=quality_profile,
             target_model=target_model,
             created_at=utc_now(),
+            user_id=user_id,
         )
         return self._upsert("projects", "project_id", project)
 

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DataForge - Settings</title>
+    <meta name="description" content="Manage your provider API keys. Stored encrypted on the server, never shown again." />
+    <meta name="dataforge-api-base" content="http://127.0.0.1:8000" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body data-page="settings">
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="index.html" aria-label="DataForge home">
+          <span class="brand-mark" aria-hidden="true">DF</span><span>DataForge</span>
+        </a>
+        <nav class="nav" aria-label="Primary">
+          <a href="index.html">Discover</a>
+          <a href="forge.html">Forge</a>
+          <a href="catalog.html">Catalog</a>
+          <a href="teams.html">Teams</a>
+        </nav>
+        <button class="provider" id="providerStatus" data-mode="offline" type="button">AI - Offline</button>
+        <div class="account" id="accountBox"></div>
+      </header>
+
+      <main>
+        <section class="page-head">
+          <span class="eyebrow">Account - Provider settings</span>
+          <h1>Your <em>provider keys</em>.</h1>
+          <p>Connect provider accounts so DataForge can run live LLM and discovery on your behalf. Keys are used only for your own requests.</p>
+        </section>
+
+        <div class="panel security-note">
+          <strong>How your keys are stored</strong>
+          <p>Submitted keys are encrypted on the backend before being saved and are <strong>never returned to the browser</strong> - this page only shows whether each provider is configured. Don't paste keys anywhere else.</p>
+        </div>
+
+        <p class="status-line" id="statusLine"></p>
+        <section class="provider-grid" id="providerList"></section>
+      </main>
+
+      <footer class="footer">
+        <span>DataForge</span>
+        <span class="muted">Provider credentials are encrypted at rest.</span>
+      </footer>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script src="config.js"></script>
+    <script src="api-client.js"></script>
+    <script src="app.js" defer></script>
+  </body>
+</html>

@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DataForge - Teams</title>
+    <meta name="description" content="Create teams, manage members and roles, and share datasets, projects, and runs. Provider keys always stay private to each user." />
+    <meta name="dataforge-api-base" content="http://127.0.0.1:8000" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body data-page="teams">
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="index.html" aria-label="DataForge home">
+          <span class="brand-mark" aria-hidden="true">DF</span><span>DataForge</span>
+        </a>
+        <nav class="nav" aria-label="Primary">
+          <a href="index.html">Discover</a>
+          <a href="forge.html">Forge</a>
+          <a href="catalog.html">Catalog</a>
+          <a href="teams.html" aria-current="page">Teams</a>
+        </nav>
+        <button class="provider" id="providerStatus" data-mode="offline" type="button">AI - Offline</button>
+        <div class="account" id="accountBox"></div>
+      </header>
+
+      <main>
+        <section class="page-head">
+          <span class="eyebrow">Account - Teams &amp; sharing</span>
+          <h1>Your <em>teams</em>.</h1>
+          <p>Create teams, manage members and their roles, and share datasets, projects, and runs. Your provider keys are never shared &mdash; they always stay private to your own account.</p>
+        </section>
+
+        <p class="status-line" id="statusLine"></p>
+
+        <div class="teams-layout">
+          <aside class="panel team-sidebar">
+            <form id="newTeamForm" class="team-create" autocomplete="off">
+              <div class="field">
+                <label for="newTeamName">Create a team</label>
+                <input id="newTeamName" type="text" placeholder="e.g. Data Science" maxlength="80" />
+              </div>
+              <button class="button primary" id="createTeamBtn" type="submit">Create</button>
+            </form>
+            <div class="team-list" id="teamList"></div>
+          </aside>
+
+          <section class="team-detail" id="teamDetail">
+            <div class="empty-state">
+              <h3>Select a team</h3>
+              <p>Pick a team on the left, or create one to manage members and shares.</p>
+            </div>
+          </section>
+        </div>
+      </main>
+
+      <footer class="footer">
+        <span>DataForge</span>
+        <span class="muted">Provider keys are per-user and never shared through a team.</span>
+      </footer>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script src="config.js"></script>
+    <script src="api-client.js"></script>
+    <script src="app.js" defer></script>
+  </body>
+</html>

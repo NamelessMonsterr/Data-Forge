@@ -1,15 +1,26 @@
 """DataForge AI - FastAPI application entrypoint."""
 
+import os
 from pathlib import Path
 import re
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from backend.app.health import HealthService, make_sqlite_check
 from backend.app.observability import configure_logging
 from backend.app.security import SecurityConfig, build_security_middleware
+from backend.auth import AuthService, AuthStore, PermissionDenied
+from backend.auth.access import assert_can, visible_records
+from backend.auth.teams import (
+    InsufficientTeamRole,
+    NotATeamMember,
+    TeamNotFound,
+    TeamService,
+    TeamStore,
+)
+from backend.auth.web import SESSION_COOKIE, build_auth_router, make_current_user_dependency
 from backend.core.agent_manifest import all_agent_manifests
 from backend.core.execution import ExecutionEngine
 from backend.core.repository import RunRecord, get_repository, utc_now
@@ -17,10 +28,15 @@ from backend.core.registry import AGENT_REGISTRY, capability_matrix
 from backend.core.service_manifest import all_service_manifests
 from backend.core.settings import get_settings
 from backend.services.catalog import DatasetCatalogService, UnifiedDatasetSearchService
+from backend.services.credentials import (
+    build_discovery_service_for,
+    build_skill_orchestrator_for,
+)
 from backend.services.dataset_processing import DatasetProcessingService
-from backend.services.discovery import DiscoveryService
 from backend.services.ingestion import DatasetIngestionService
-from backend.services.llm_orchestrator import LLMOrchestrator
+from backend.vault import ProviderVault, VaultKeyMissing, VaultStore
+from backend.vault.crypto import SecretBox
+from backend.vault.web import build_settings_router
 from planner.planner import RuleBasedPlanner
 from planner.workflow_library import WORKFLOW_LIBRARY
 from router.hybrid_router import HybridRouter
@@ -47,13 +63,32 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 app.add_middleware(build_security_middleware(security_config))
 
 health_service = HealthService()
+auth_store = AuthStore(os.getenv("DATAFORGE_AUTH_DB", "tmp/dataforge_auth.db"))
+auth_service = AuthService(auth_store)
+app.include_router(build_auth_router(auth_service))
+current_user = make_current_user_dependency(auth_service)
+team_service = TeamService(TeamStore(os.getenv("DATAFORGE_TEAMS_DB", "tmp/dataforge_teams.db")))
+
+try:
+    provider_vault = ProviderVault(
+        VaultStore(os.getenv("DATAFORGE_VAULT_DB", "tmp/dataforge_vault.db")),
+        SecretBox.from_env(),
+    )
+except VaultKeyMissing:
+    provider_vault = None
+app.include_router(build_settings_router(lambda: provider_vault, current_user))
+
+
+def optional_user(request: Request):
+    """Return the authenticated user when a session cookie exists, else None."""
+    return auth_service.authenticate(request.cookies.get(SESSION_COOKIE))
 
 
 def repository():
@@ -69,6 +104,86 @@ def safe_task_id(task_id: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9_-]+", task_id):
         raise HTTPException(status_code=400, detail="Invalid task id.")
     return task_id
+
+
+def require_access(
+    record: object | None,
+    resource_type: str,
+    id_field: str,
+    user: object,
+    *,
+    need: str = "view",
+    missing_detail: str = "Resource not found.",
+) -> object:
+    """Return a record only when the authenticated user has team-aware access."""
+    if record is None:
+        raise HTTPException(status_code=404, detail=missing_detail)
+    try:
+        return assert_can(record, resource_type, id_field, user, team_service, need=need)
+    except PermissionDenied as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+def run_for_task_or_404(task_id: str, user: object, *, need: str = "view") -> RunRecord:
+    """Resolve a workflow/upload run by task id and enforce team-aware access."""
+    run = repository().get_run(task_id)
+    return require_access(
+        run,
+        "run",
+        "task_id",
+        user,
+        need=need,
+        missing_detail="Run not found.",
+    )  # type: ignore[return-value]
+
+
+def _team_error(exc: Exception) -> HTTPException:
+    """Map team-domain errors to HTTP statuses."""
+    if isinstance(exc, TeamNotFound):
+        return HTTPException(status_code=404, detail="Team not found.")
+    if isinstance(exc, (NotATeamMember, InsufficientTeamRole, PermissionDenied)):
+        return HTTPException(status_code=403, detail=str(exc))
+    return HTTPException(status_code=400, detail=str(exc))
+
+
+def _team_json(team: object) -> dict:
+    return {
+        "id": team.id,
+        "name": team.name,
+        "owner_id": team.owner_id,
+        "created_at": team.created_at,
+    }
+
+
+def _member_json(member: object) -> dict:
+    return {
+        "team_id": member.team_id,
+        "user_id": member.user_id,
+        "team_role": member.team_role,
+        "created_at": member.created_at,
+    }
+
+
+def _share_json(share: object) -> dict:
+    return {
+        "resource_type": share.resource_type,
+        "resource_id": share.resource_id,
+        "team_id": share.team_id,
+        "permission": share.permission,
+        "created_at": share.created_at,
+    }
+
+
+def _resource_for_share(resource_type: str, resource_id: str) -> tuple[object | None, str]:
+    """Resolve a shareable resource and return (record, id_field)."""
+    repo = repository()
+    if resource_type == "dataset":
+        return repo.get_dataset(resource_id), "dataset_id"
+    if resource_type == "project":
+        return repo.get_project(resource_id), "project_id"
+    if resource_type == "run":
+        return repo.get_run(resource_id), "task_id"
+    raise HTTPException(status_code=400, detail="Unsupported resource type.")
 
 
 @app.get("/health")
@@ -119,11 +234,166 @@ def list_workflows() -> dict:
     }
 
 
-def _discovery_response(payload: dict, query_override: str | None = None) -> dict:
+@app.post("/teams")
+def create_team(payload: dict, user=Depends(current_user)) -> dict:
+    """Create a team and enroll the creator as owner."""
+    try:
+        team = team_service.create_team(
+            name=str(payload.get("name", "Untitled Team")),
+            user=user,
+        )
+    except Exception as exc:  # noqa: BLE001 - mapped to client error
+        raise _team_error(exc) from exc
+    return _team_json(team)
+
+
+@app.get("/teams")
+def list_teams(user=Depends(current_user)) -> dict:
+    """List teams the current user belongs to."""
+    return {
+        "teams": [
+            _team_json(team)
+            for team in team_service.list_teams_for_user(user)
+        ]
+    }
+
+
+@app.delete("/teams/{team_id}")
+def delete_team(team_id: str, user=Depends(current_user)) -> dict:
+    """Delete a team. Only the team owner or a global admin may delete."""
+    try:
+        team_service.delete_team(team_id, user)
+    except Exception as exc:  # noqa: BLE001 - mapped to HTTP
+        raise _team_error(exc) from exc
+    return {"ok": True, "team_id": team_id, "removed": True}
+
+
+@app.get("/teams/{team_id}/members")
+def list_team_members(team_id: str, user=Depends(current_user)) -> dict:
+    """List team members for a team the user belongs to."""
+    try:
+        members = team_service.list_members(team_id, user)
+    except Exception as exc:  # noqa: BLE001 - mapped to HTTP
+        raise _team_error(exc) from exc
+    return {"team_id": team_id, "members": [_member_json(member) for member in members]}
+
+
+@app.post("/teams/{team_id}/members")
+def add_team_member(team_id: str, payload: dict, user=Depends(current_user)) -> dict:
+    """Add or update a team member by user_id or email."""
+    target_user_id = str(payload.get("user_id") or "").strip()
+    email = str(payload.get("email") or "").strip().lower()
+    if not target_user_id and email:
+        rec = auth_store.get_user_by_email(email)
+        if rec is None:
+            raise HTTPException(status_code=404, detail="User not found.")
+        target_user_id = rec.id
+    if not target_user_id:
+        raise HTTPException(status_code=400, detail="user_id or email is required.")
+    try:
+        member = team_service.add_member(
+            team_id,
+            target_user_id,
+            str(payload.get("role") or payload.get("team_role") or "member"),
+            user,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 - mapped to HTTP
+        raise _team_error(exc) from exc
+    return _member_json(member)
+
+
+@app.delete("/teams/{team_id}/members/{user_id}")
+def remove_team_member(team_id: str, user_id: str, user=Depends(current_user)) -> dict:
+    """Remove a member from a team. The team owner cannot be removed."""
+    try:
+        team_service.remove_member(team_id, user_id, user)
+    except Exception as exc:  # noqa: BLE001 - mapped to HTTP
+        raise _team_error(exc) from exc
+    return {"ok": True, "team_id": team_id, "user_id": user_id, "removed": True}
+
+
+@app.post("/teams/{team_id}/shares")
+def share_team_resource(team_id: str, payload: dict, user=Depends(current_user)) -> dict:
+    """Share a dataset/project/run with a team."""
+    resource_type = str(payload.get("resource_type") or "").strip().lower()
+    resource_id = str(payload.get("resource_id") or "").strip()
+    permission = str(payload.get("permission") or "view").strip().lower()
+    record, id_field = _resource_for_share(resource_type, resource_id)
+    require_access(
+        record,
+        resource_type,
+        id_field,
+        user,
+        need="edit",
+        missing_detail="Resource not found.",
+    )
+    try:
+        share = team_service.share_resource(
+            resource_type,
+            resource_id,
+            team_id,
+            permission,
+            user,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 - mapped to HTTP
+        raise _team_error(exc) from exc
+    return _share_json(share)
+
+
+@app.get("/teams/{team_id}/shares")
+def list_team_shares(team_id: str, user=Depends(current_user)) -> dict:
+    """List resources shared with a team."""
+    try:
+        shares = team_service.list_shares(team_id, user)
+    except Exception as exc:  # noqa: BLE001 - mapped to HTTP
+        raise _team_error(exc) from exc
+    return {"team_id": team_id, "shares": [_share_json(share) for share in shares]}
+
+
+@app.delete("/teams/{team_id}/shares")
+def unshare_team_resource(
+    team_id: str,
+    resource_type: str,
+    resource_id: str,
+    user=Depends(current_user),
+) -> dict:
+    """Remove a team share from a dataset/project/run."""
+    resource_type = resource_type.strip().lower()
+    record, id_field = _resource_for_share(resource_type, resource_id)
+    require_access(
+        record,
+        resource_type,
+        id_field,
+        user,
+        need="edit",
+        missing_detail="Resource not found.",
+    )
+    try:
+        team_service.unshare_resource(resource_type, resource_id, team_id, user)
+    except Exception as exc:  # noqa: BLE001 - mapped to HTTP
+        raise _team_error(exc) from exc
+    return {
+        "ok": True,
+        "team_id": team_id,
+        "resource_type": resource_type,
+        "resource_id": resource_id,
+        "removed": True,
+    }
+
+
+def _discovery_response(
+    payload: dict,
+    query_override: str | None = None,
+    user: object | None = None,
+) -> dict:
     """Search dataset providers and return ranked candidates without ingestion."""
     planner = RuleBasedPlanner()
     plan = planner.plan(payload)
-    service = DiscoveryService()
+    service = build_discovery_service_for(user, provider_vault)
     query = str(
         query_override
         or plan.structured_requirement.get("raw_request")
@@ -154,24 +424,30 @@ def _discovery_response(payload: dict, query_override: str | None = None) -> dic
 
 
 @app.post("/discovery/search")
-def discovery_search(payload: dict) -> dict:
+def discovery_search(payload: dict, user=Depends(optional_user)) -> dict:
     """Search dataset providers and return ranked candidates without ingestion."""
-    return _discovery_response(payload)
+    return _discovery_response(payload, user=user)
 
 
 @app.get("/discovery/search")
-def discovery_search_get(q: str = "", intensity: str = "medium", limit: int = 10) -> dict:
+def discovery_search_get(
+    q: str = "",
+    intensity: str = "medium",
+    limit: int = 10,
+    user=Depends(optional_user),
+) -> dict:
     """GET variant used by static frontends and smoke tests."""
     return _discovery_response(
         {"request": q, "query": q, "intensity": intensity, "limit": limit},
         query_override=q,
+        user=user,
     )
 
 
 @app.get("/discovery/providers")
-def discovery_providers() -> dict:
+def discovery_providers(user=Depends(optional_user)) -> dict:
     """Return configured discovery providers and last error state."""
-    service = DiscoveryService()
+    service = build_discovery_service_for(user, provider_vault)
     return service.provider_status()
 
 
@@ -192,7 +468,7 @@ def ingest_dataset(payload: dict) -> dict:
 
 
 @app.post("/datasets/process")
-def process_dataset(payload: dict) -> dict:
+def process_dataset(payload: dict, user=Depends(current_user)) -> dict:
     """Ingest uploaded dataset content and generate reports, manifest, and ZIP."""
     settings = get_settings()
     service = DatasetProcessingService(settings.storage.artifacts_root)
@@ -206,7 +482,25 @@ def process_dataset(payload: dict) -> dict:
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    catalog_record = DatasetCatalogService(repository()).index_processed_upload(result)
+    repo = repository()
+    orchestrator = build_skill_orchestrator_for(user, provider_vault)
+    catalog_record = DatasetCatalogService(repo, orchestrator=orchestrator).index_processed_upload(
+        result,
+        user_id=user.id,
+    )
+    repo.save_run(
+        RunRecord(
+            task_id=result["task_id"],
+            project_id=payload.get("project_id"),
+            workflow="dataset_process",
+            status=result.get("status", "completed"),
+            request=payload,
+            artifacts=result.get("artifacts", {}),
+            created_at=utc_now(),
+            completed_at=utc_now(),
+            user_id=user.id,
+        )
+    )
     result["catalog_record"] = {
         "id": catalog_record.dataset_id,
         "title": catalog_record.title,
@@ -216,58 +510,104 @@ def process_dataset(payload: dict) -> dict:
 
 
 @app.get("/datasets/catalog")
-def list_dataset_catalog() -> dict:
+def list_dataset_catalog(user=Depends(current_user)) -> dict:
     """List uploaded datasets indexed in the local catalog."""
     catalog = DatasetCatalogService(repository())
-    return {"datasets": catalog.list_datasets()}
+    records = visible_records(
+        repository().list_datasets(),
+        "dataset",
+        "dataset_id",
+        user,
+        team_service,
+        need="view",
+    )
+    return {"datasets": [catalog._record_to_dict(record) for record in records]}
 
 
 @app.post("/datasets/search")
-def search_datasets(payload: dict) -> dict:
+def search_datasets(payload: dict, user=Depends(current_user)) -> dict:
     """Search local uploaded datasets and optionally public dataset providers."""
-    catalog = DatasetCatalogService(repository())
-    service = UnifiedDatasetSearchService(catalog)
+    orchestrator = build_skill_orchestrator_for(user, provider_vault)
+    repo = repository()
+    visible_dataset_ids = {
+        record.dataset_id
+        for record in visible_records(
+            repo.list_datasets(),
+            "dataset",
+            "dataset_id",
+            user,
+            team_service,
+            need="view",
+        )
+    }
+    catalog = DatasetCatalogService(repo, orchestrator=orchestrator)
+    discovery = build_discovery_service_for(user, provider_vault)
+    service = UnifiedDatasetSearchService(catalog, discovery=discovery)
     return service.search(
         query=str(payload.get("query", "")),
         include_public=bool(payload.get("include_public", False)),
         limit=int(payload.get("limit", 10)),
         intensity=str(payload.get("intensity") or payload.get("search_intensity") or "medium"),
+        allowed_dataset_ids=visible_dataset_ids,
     )
 
 
 @app.post("/projects")
-def create_project(payload: dict) -> dict:
+def create_project(payload: dict, user=Depends(current_user)) -> dict:
     """Create a DataForge project."""
     repo = repository()
     project = repo.create_project(
         name=str(payload.get("name", "Untitled DataForge Project")),
         quality_profile=str(payload.get("quality_profile", "production")),
         target_model=str(payload.get("target_model", "nemotron")),
+        user_id=user.id,
     )
     return project.__dict__
 
 
 @app.get("/projects")
-def list_projects() -> dict:
+def list_projects(user=Depends(current_user)) -> dict:
     """List DataForge projects."""
     repo = repository()
-    return {"projects": [project.__dict__ for project in repo.list_projects()]}
+    projects = visible_records(
+        repo.list_projects(),
+        "project",
+        "project_id",
+        user,
+        team_service,
+        need="view",
+    )
+    return {"projects": [project.__dict__ for project in projects]}
 
 
 @app.get("/projects/{project_id}")
-def get_project(project_id: str) -> dict:
+def get_project(project_id: str, user=Depends(current_user)) -> dict:
     """Return a DataForge project and its workflow runs."""
     repo = repository()
-    project = repo.get_project(project_id)
-    runs = repo.list_runs(project_id)
+    project = require_access(
+        repo.get_project(project_id),
+        "project",
+        "project_id",
+        user,
+        need="view",
+        missing_detail="Project not found.",
+    )
+    runs = visible_records(
+        repo.list_runs(project_id),
+        "run",
+        "task_id",
+        user,
+        team_service,
+        need="view",
+    )
     return {
-        "project": project.__dict__ if project else None,
+        "project": project.__dict__,
         "runs": [run.__dict__ for run in runs],
     }
 
 
 @app.post("/workflow/start")
-def start_workflow(payload: dict) -> dict:
+def start_workflow(payload: dict, user=Depends(current_user)) -> dict:
     """Plan, validate, execute, report, and package a dataset workflow."""
     planner = RuleBasedPlanner()
     plan = planner.plan(payload)
@@ -301,6 +641,7 @@ def start_workflow(payload: dict) -> dict:
             artifacts=execution.artifacts,
             created_at=utc_now(),
             completed_at=utc_now(),
+            user_id=user.id,
         )
     )
     return {
@@ -321,18 +662,25 @@ def start_workflow(payload: dict) -> dict:
 
 
 @app.get("/workflow/status/{task_id}")
-def workflow_status(task_id: str) -> dict:
+def workflow_status(task_id: str, user=Depends(current_user)) -> dict:
     """Return persisted workflow run status."""
-    repo = repository()
-    run = repo.get_run(task_id)
-    return {"run": run.__dict__ if run else None}
+    run = run_for_task_or_404(safe_task_id(task_id), user)
+    return {"run": run.__dict__}
 
 
 @app.get("/workflow/runs")
-def list_workflow_runs(project_id: str | None = None) -> dict:
+def list_workflow_runs(project_id: str | None = None, user=Depends(current_user)) -> dict:
     """List persisted workflow runs, optionally filtered by project."""
     repo = repository()
-    return {"runs": [run.__dict__ for run in repo.list_runs(project_id)]}
+    runs = visible_records(
+        repo.list_runs(project_id),
+        "run",
+        "task_id",
+        user,
+        team_service,
+        need="view",
+    )
+    return {"runs": [run.__dict__ for run in runs]}
 
 
 @app.get("/router/status")
@@ -343,15 +691,16 @@ def router_status() -> dict:
 
 
 @app.get("/ai/llm/status")
-def llm_status() -> dict:
+def llm_status(user=Depends(optional_user)) -> dict:
     """Return LLM skill orchestrator provider priority and health."""
-    return LLMOrchestrator().status()
+    return build_skill_orchestrator_for(user, provider_vault).status()
 
 
 @app.get("/reports/{task_id}")
-def list_reports(task_id: str) -> dict:
+def list_reports(task_id: str, user=Depends(current_user)) -> dict:
     """List generated report files for an execution task."""
     task_id = safe_task_id(task_id)
+    run_for_task_or_404(task_id, user)
     reports_dir = get_settings().storage.artifacts_root / task_id / "reports"
     reports = []
     if reports_dir.exists():
@@ -360,8 +709,9 @@ def list_reports(task_id: str) -> dict:
 
 
 @app.get("/artifacts/{task_id}/dataset.zip")
-def download_dataset_zip(task_id: str) -> FileResponse:
+def download_dataset_zip(task_id: str, user=Depends(current_user)) -> FileResponse:
     """Download a packaged dataset ZIP for an execution task."""
     task_id = safe_task_id(task_id)
+    run_for_task_or_404(task_id, user)
     zip_path = get_settings().storage.artifacts_root / task_id / "dataset.zip"
     return FileResponse(zip_path, filename="dataset.zip", media_type="application/zip")
