@@ -17,6 +17,7 @@ const elements = {
   heroQuery: document.querySelector("#heroQuery"),
   searchForm: document.querySelector("#searchForm"),
   searchQuery: document.querySelector("#searchQuery"),
+  searchIntensity: document.querySelector("#searchIntensity"),
   includePublic: document.querySelector("#includePublic"),
   searchStatus: document.querySelector("#searchStatus"),
   resultContext: document.querySelector("#resultContext"),
@@ -28,10 +29,13 @@ const elements = {
   dropZone: document.querySelector("#dropZone"),
   datasetFile: document.querySelector("#datasetFile"),
   uploadRequest: document.querySelector("#uploadRequest"),
+  qualityProfile: document.querySelector("#qualityProfile"),
   loadCatalogButton: document.querySelector("#loadCatalogButton"),
   refreshCatalogButton: document.querySelector("#refreshCatalogButton"),
   catalogGrid: document.querySelector("#catalogGrid"),
   filters: [...document.querySelectorAll(".filter")],
+  pages: [...document.querySelectorAll("[data-page]")],
+  routes: [...document.querySelectorAll("[data-route]")],
   promptButtons: [...document.querySelectorAll("[data-prompt]")],
   toast: document.querySelector("#toast"),
 };
@@ -82,6 +86,45 @@ function sourceLabel(item) {
   return item.source || item.provider || "local";
 }
 
+function routeTo(page) {
+  const target = ["discover", "upload", "catalog"].includes(page) ? page : "discover";
+  elements.pages.forEach((section) => section.classList.toggle("active", section.dataset.page === target));
+  elements.routes.forEach((link) => link.classList.toggle("active", link.dataset.route === target));
+  if (location.hash.replace("#", "") !== target) {
+    history.replaceState(null, "", `#${target}`);
+  }
+}
+
+function routeFromHash() {
+  const hash = location.hash.replace("#", "");
+  routeTo(hash === "search" ? "discover" : hash || "discover");
+}
+
+function intensityConfig(value) {
+  return {
+    easy: { label: "Easy", limit: 5, description: "fast local-first scan" },
+    medium: { label: "Medium", limit: 8, description: "balanced relevance scan" },
+    hard: { label: "Hard", limit: 12, description: "broader source and quality scan" },
+    very_hard: { label: "Very hard", limit: 16, description: "deep candidate review" },
+    intense: { label: "Intense", limit: 24, description: "maximum recall search pass" },
+  }[value || "medium"];
+}
+
+function difficultyLabel(item) {
+  const quality = Number(item.quality_score ?? item.metadata?.quality_score);
+  const rows = Number(item.rows ?? item.metadata?.rows ?? 0);
+  if (Number.isFinite(quality)) {
+    if (quality >= 95) return "Easy";
+    if (quality >= 88) return "Medium";
+    if (quality >= 78) return "Hard";
+    if (quality >= 65) return "Very hard";
+    return "Intense";
+  }
+  if (rows > 100000) return "Very hard";
+  if (rows > 25000) return "Hard";
+  return "Medium";
+}
+
 function zipUrl(item) {
   const taskId = item.task_id || item.taskId;
   return taskId ? `${API_BASE}/artifacts/${encodeURIComponent(taskId)}/dataset.zip` : "";
@@ -115,6 +158,7 @@ function renderResultCard(item) {
   const tags = (item.tags || item.metadata?.tags || []).slice(0, 4);
   const summary = item.ai_summary || item.description || item.snippet || "No summary available.";
   const score = scoreLabel(item);
+  const difficulty = difficultyLabel(item);
   return `
     <article class="result-card ${active ? "active" : ""}" data-id="${escapeHtml(item.id)}">
       <div class="result-top">
@@ -129,6 +173,7 @@ function renderResultCard(item) {
         <span>${escapeHtml(fmtInt(item.rows ?? item.metadata?.rows ?? 0))} rows</span>
         <span>${escapeHtml(metricValue(item.columns))} cols</span>
         <span>quality ${escapeHtml(metricValue(item.quality_score))}</span>
+        <span class="difficulty ${escapeHtml(difficulty.toLowerCase().replaceAll(" ", "-"))}">${escapeHtml(difficulty)}</span>
       </div>
       ${tags.length ? `<div class="meta-row">${tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
     </article>
@@ -272,29 +317,34 @@ function renderLoadingResults() {
     .join("");
 }
 
-async function runSearch(query, includePublic = true) {
+async function runSearch(query, includePublic = true, intensity = elements.searchIntensity?.value || "medium") {
+  const config = intensityConfig(intensity);
   renderLoadingResults();
-  elements.searchStatus.textContent = "Understanding query…";
-  showToast("Understanding query…");
+  elements.searchStatus.textContent = `Understanding query · ${config.label} intensity`;
+  showToast(`Understanding query · ${config.label}`);
   await wait(160);
-  elements.searchStatus.textContent = "Searching datasets…";
+  elements.searchStatus.textContent = `Searching datasets · ${config.description}`;
   const body = await api("/datasets/search", {
     method: "POST",
-    body: JSON.stringify({ query, include_public: includePublic, limit: 12 }),
+    body: JSON.stringify({
+      query,
+      include_public: includePublic,
+      limit: config.limit,
+      search_intensity: intensity,
+    }),
   });
-  elements.searchStatus.textContent = "Ranking relevance and generating recommendations…";
+  elements.searchStatus.textContent = "Ranking relevance and generating recommendations";
   await wait(160);
   state.results = body.results || [];
   state.activeDataset = state.results[0] || null;
   state.activeTab = "overview";
-  elements.resultContext.textContent = `Results for “${query}”`;
-  elements.searchStatus.textContent = `${body.counts?.returned || 0} results · local ${body.counts?.local || 0} · public ${body.counts?.public || 0}`;
+  elements.resultContext.textContent = `Results for "${query}"`;
+  elements.searchStatus.textContent = `${body.counts?.returned || 0} results · ${config.label} intensity · local ${body.counts?.local || 0} · public ${body.counts?.public || 0}`;
   showToast("Search complete.");
   renderResults();
   renderDetails();
-  location.hash = "search";
+  routeTo("discover");
 }
-
 async function loadCatalog() {
   elements.searchStatus.textContent = "Loading local catalog…";
   const body = await api("/datasets/catalog");
@@ -307,7 +357,7 @@ async function loadCatalog() {
   renderResults();
   renderDetails();
   renderCatalogGrid();
-  location.hash = "catalog";
+  routeTo("catalog");
 }
 
 function renderCatalogGrid() {
@@ -350,6 +400,7 @@ async function processUpload(event) {
       filename: file.name,
       content,
       request: elements.uploadRequest.value || "Analyze this uploaded dataset.",
+      quality_profile: elements.qualityProfile?.value || "production",
     }),
   });
   setStepper(3);
@@ -367,6 +418,7 @@ async function processUpload(event) {
       <div class="metric"><span>Rows</span><strong>${escapeHtml(fmtInt(result.summary.rows))}</strong></div>
       <div class="metric"><span>Columns</span><strong>${escapeHtml(metricValue(result.summary.columns))}</strong></div>
       <div class="metric"><span>Quality score</span><strong>${escapeHtml(metricValue(result.quality_report.score))}</strong></div>
+      <div class="metric"><span>Target</span><strong>${escapeHtml(result.quality_report.profile || elements.qualityProfile?.value || "production")}</strong></div>
       <div class="metric"><span>Duplicates</span><strong>${escapeHtml(metricValue(result.summary.duplicate_rows))}</strong></div>
     </div>
     <div class="detail-section">
@@ -445,7 +497,7 @@ function showToast(message, isError = false) {
 elements.heroSearchForm.addEventListener("submit", (event) => {
   event.preventDefault();
   elements.searchQuery.value = elements.heroQuery.value;
-  runSearch(elements.heroQuery.value || "healthcare datasets", true).catch((error) => {
+  runSearch(elements.heroQuery.value || "healthcare datasets", true, elements.searchIntensity?.value).catch((error) => {
     elements.searchStatus.textContent = error.message;
     showToast(error.message, true);
   });
@@ -453,7 +505,7 @@ elements.heroSearchForm.addEventListener("submit", (event) => {
 
 elements.searchForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  runSearch(elements.searchQuery.value || "datasets", elements.includePublic.checked).catch((error) => {
+  runSearch(elements.searchQuery.value || "datasets", elements.includePublic.checked, elements.searchIntensity?.value).catch((error) => {
     elements.searchStatus.textContent = error.message;
     showToast(error.message, true);
   });
@@ -472,7 +524,7 @@ elements.promptButtons.forEach((button) => {
     const prompt = button.dataset.prompt;
     elements.heroQuery.value = prompt;
     elements.searchQuery.value = prompt;
-    runSearch(prompt, true).catch((error) => {
+    runSearch(prompt, true, elements.searchIntensity?.value).catch((error) => {
       elements.searchStatus.textContent = error.message;
       showToast(error.message, true);
     });
@@ -486,7 +538,7 @@ elements.uploadForm.addEventListener("submit", (event) => {
 elements.loadCatalogButton.addEventListener("click", () => {
   loadCatalog().catch((error) => {
     elements.searchStatus.textContent = error.message;
-    location.hash = "search";
+    routeTo("discover");
   });
 });
 
@@ -524,7 +576,13 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+window.addEventListener("hashchange", routeFromHash);
+elements.routes.forEach((link) => {
+  link.addEventListener("click", () => routeTo(link.dataset.route));
+});
+
 loadProviderStatus();
+routeFromHash();
 renderResults();
 renderDetails();
 renderCatalogGrid();
