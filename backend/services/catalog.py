@@ -7,7 +7,11 @@ from typing import Any
 from uuid import uuid4
 
 from backend.core.repository import DatasetCatalogRecord, JsonRepository, utc_now
-from backend.services.ai_skills import DatasetRecommendationSkill, DatasetSummarySkill
+from backend.services.ai_skills import (
+    DataCardSkill,
+    DatasetRecommendationSkill,
+    DatasetSummarySkill,
+)
 from backend.services.discovery import DiscoveryService
 from backend.services.llm_orchestrator import LLMOrchestrator
 from backend.services.semantic_search import SemanticTextEncoder
@@ -43,6 +47,24 @@ class DatasetCatalogService:
             },
             self.orchestrator,
         )
+        quality_report = result.get("quality_report", {})
+        card_schema = {
+            name: (meta.get("type") if isinstance(meta, dict) else meta)
+            for name, meta in schema.items()
+        }
+        dataset_card = DataCardSkill().run(
+            {
+                "title": title,
+                "rows": upload_summary["rows"],
+                "columns": upload_summary["columns"],
+                "schema": card_schema,
+                "license": "user_provided",
+                "quality_score": quality_report.get("score"),
+                "tags": tags,
+                "summary": ai_summary.text,
+            },
+            self.orchestrator,
+        )
         record = DatasetCatalogRecord(
             dataset_id=f"local-{uuid4().hex[:12]}",
             title=title,
@@ -59,6 +81,7 @@ class DatasetCatalogService:
             quality_score=result.get("quality_report", {}).get("score"),
             quality_narrative=result.get("quality_report", {}).get("narrative", ""),
             quality_metrics=result.get("quality_report", {}).get("metrics", {}),
+            dataset_card=dataset_card.text,
             tags=tags,
             description=ai_summary.text,
             created_at=utc_now(),
@@ -156,6 +179,7 @@ class DatasetCatalogService:
             "quality_score": record.quality_score,
             "quality_narrative": record.quality_narrative,
             "quality_metrics": record.quality_metrics,
+            "dataset_card": record.dataset_card,
             "tags": record.tags,
             "description": record.description,
             "ai_summary": record.ai_summary,

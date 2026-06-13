@@ -65,6 +65,7 @@ class DatasetCatalogRecord:
     ai_provider: str = "local"
     quality_narrative: str = ""
     quality_metrics: dict[str, Any] = field(default_factory=dict)
+    dataset_card: str = ""
 
 
 @dataclass

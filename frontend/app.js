@@ -143,7 +143,7 @@ function renderDetails() {
     `;
     return;
   }
-  const tabs = ["overview", "schema", "quality", "artifacts", "recommendations"];
+  const tabs = ["overview", "card", "schema", "quality", "artifacts", "recommendations"];
   elements.detailsPane.innerHTML = `
     <h3>${escapeHtml(item.title)}</h3>
     <div class="meta-row">
@@ -165,6 +165,15 @@ function renderDetails() {
 
 function renderTab(item) {
   const schema = item.schema || {};
+  if (state.activeTab === "card") {
+    const card = item.dataset_card;
+    return `
+      <div class="detail-section">
+        <h4>Dataset card</h4>
+        ${card ? `<pre class="dataset-card">${escapeHtml(card)}</pre>` : "<p>No dataset card yet. Upload and process a dataset to generate one.</p>"}
+      </div>
+    `;
+  }
   if (state.activeTab === "schema") {
     const rows = Object.entries(schema).slice(0, 12);
     return `
