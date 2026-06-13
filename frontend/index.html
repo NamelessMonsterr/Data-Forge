@@ -3,45 +3,38 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>DataForge · Dataset discovery & packaging</title>
-    <meta name="description" content="Search, inspect, and package datasets. Offline-deterministic by default, with an optional live NVIDIA NIM path." />
+    <title>DataForge · Discover datasets</title>
+    <meta name="description" content="Search and inspect datasets with DataForge." />
     <link rel="stylesheet" href="styles.css" />
   </head>
-  <body>
+  <body data-page="discover">
     <div class="app-shell">
       <header class="topbar">
-        <a class="brand" href="#discover" data-route="discover" aria-label="DataForge home">
+        <a class="brand" href="index.html" aria-label="DataForge home">
           <span class="brand-mark" aria-hidden="true">DF</span>
           <span>DataForge</span>
         </a>
         <nav class="nav" aria-label="Primary navigation">
-          <a href="#discover" data-route="discover">Discover</a>
-          <a href="#upload" data-route="upload">Upload</a>
-          <a href="#catalog" data-route="catalog">Catalog</a>
+          <a href="index.html" data-nav="discover">Discover</a>
+          <a href="upload.html" data-nav="upload">Upload</a>
+          <a href="catalog.html" data-nav="catalog">Catalog</a>
         </nav>
         <button class="provider" id="providerStatus" data-mode="offline" type="button" title="LLM provider status">AI Status · Offline Mode</button>
       </header>
 
       <main>
-        <section class="page active" id="discover" data-page="discover">
         <section class="hero">
           <div class="hero-copy">
             <span class="eyebrow">Dataset discovery engine</span>
             <h1>Search, inspect, and <em>package</em> datasets.</h1>
             <p>
-              Run natural-language search across your catalog, upload raw CSV / JSON / JSONL
-              for real schema inference and packaging, and export reproducible ZIP artifacts.
-              Deterministic offline by default — no API keys required to demo.
+              Use natural-language search across the local catalog and optional public providers.
+              Tune search intensity from Easy to Intense, inspect quality and schema, then move
+              to upload or catalog workflows when needed.
             </p>
             <form class="cmdbar" id="heroSearchForm">
               <label class="sr-only" for="heroQuery">Search datasets</label>
-              <input
-                id="heroQuery"
-                name="query"
-                type="search"
-                placeholder="e.g. healthcare datasets with patient demographics"
-                autocomplete="off"
-              />
+              <input id="heroQuery" name="query" type="search" placeholder="e.g. healthcare datasets with patient demographics" autocomplete="off" />
               <button type="submit">Search</button>
             </form>
             <div class="prompt-examples" aria-label="Example dataset searches">
@@ -52,27 +45,27 @@
               <button type="button" data-prompt="Indian traffic accident datasets">Traffic accidents</button>
             </div>
             <div class="hero-actions">
-              <a class="button secondary" href="#upload" data-route="upload">Upload a dataset</a>
-              <button class="button ghost" id="loadCatalogButton" type="button">View catalog</button>
+              <a class="button secondary" href="upload.html">Upload a dataset</a>
+              <a class="button ghost" href="catalog.html">View catalog</a>
             </div>
             <div class="feature-strip" aria-label="DataForge capabilities">
               <div>Natural-language search</div>
-              <div>Schema inference & stats</div>
-              <div>Quality reporting</div>
-              <div>Reproducible ZIP artifacts</div>
+              <div>Search intensity control</div>
+              <div>Difficulty scoring</div>
+              <div>Quality-aware ranking</div>
             </div>
           </div>
           <aside class="status-card" aria-label="System status">
             <div class="status-head"><span class="dot"></span> System status</div>
             <ul>
               <li><span>LLM mode</span><b class="warn" id="heroLlmMode">Offline · deterministic</b></li>
-              <li><span>Ingestion</span><b class="ok">Live · CSV / JSON / JSONL</b></li>
-              <li><span>Catalog search</span><b class="ok">Offline semantic</b></li>
+              <li><span>Search</span><b class="ok">Local semantic</b></li>
+              <li><span>Public discovery</span><b>Opt-in live providers</b></li>
+              <li><span>Quality</span><b>Computed metrics</b></li>
               <li><span>Artifacts</span><b>SHA-256 + ZIP</b></li>
-              <li><span>Orchestration</span><b>/workflow/start · reference</b></li>
             </ul>
             <div class="status-foot">
-              Live NVIDIA NIM enabled with <code>DATAFORGE_LIVE_LLM=true</code> + credentials.
+              Live NVIDIA NIM is enabled with <code>DATAFORGE_LIVE_LLM=true</code> and credentials.
             </div>
           </aside>
         </section>
@@ -81,7 +74,7 @@
           <div class="section-heading">
             <div>
               <h2>Search results</h2>
-              <p id="resultContext">Search for datasets or load the local catalog.</p>
+              <p id="resultContext">Search for datasets or open the catalog page.</p>
             </div>
             <form class="toolbar-search" id="searchForm">
               <label class="sr-only" for="searchQuery">Search query</label>
@@ -122,83 +115,9 @@
             </aside>
           </div>
         </section>
-        </section>
-
-        <section class="page" id="upload" data-page="upload">
-        <section class="workspace">
-          <div class="section-heading">
-            <div>
-              <h2>Upload dataset</h2>
-              <p>Process CSV, JSON, or JSONL content into normalized, packaged artifacts.</p>
-            </div>
-          </div>
-          <div class="upload-grid">
-            <form class="upload-panel" id="uploadForm">
-              <label class="drop-zone" id="dropZone">
-                Drop a dataset file
-                <input id="datasetFile" name="file" type="file" accept=".csv,.json,.jsonl" />
-                <span>CSV, JSON, or JSONL — or click to browse.</span>
-              </label>
-              <label>
-                Analysis request
-                <textarea id="uploadRequest" rows="5" placeholder="Analyze this uploaded healthcare instruction dataset."></textarea>
-              </label>
-              <label>
-                Quality target
-                <select id="qualityProfile">
-                  <option value="fast">Fast inspection · 70</option>
-                  <option value="balanced">Balanced · 80</option>
-                  <option value="production" selected>Production · 90</option>
-                  <option value="research">Research · 95</option>
-                  <option value="enterprise">Enterprise · 98</option>
-                </select>
-              </label>
-              <button type="submit">Process dataset</button>
-            </form>
-            <div class="upload-result" id="uploadResult">
-              <h3>Processing output</h3>
-              <p>Choose a dataset to generate a summary, catalog record, manifest, checksums, and ZIP.</p>
-              <div class="stepper" id="uploadStepper" aria-label="Upload processing steps">
-                <div>Upload</div>
-                <div>Normalize</div>
-                <div>Analyze</div>
-                <div>Artifacts</div>
-                <div>Index</div>
-                <div>Complete</div>
-              </div>
-            </div>
-          </div>
-        </section>
-        </section>
-
-        <section class="page" id="catalog" data-page="catalog">
-        <section class="workspace">
-          <div class="section-heading">
-            <div>
-              <h2>Catalog</h2>
-              <p>Browse indexed datasets, sorted by quality, and open artifact details.</p>
-            </div>
-            <button class="button secondary" id="refreshCatalogButton" type="button">Refresh catalog</button>
-          </div>
-          <div class="catalog-grid" id="catalogGrid"></div>
-        </section>
-
-        <section class="workspace about">
-          <h2>How DataForge works</h2>
-          <p>
-            DataForge helps you find, inspect, and package datasets. The web app drives the real
-            ingestion path — parsing, schema inference, statistics, checksums, and ZIP packaging —
-            plus offline semantic catalog search. The multi-agent planner is exposed at
-            <code>/workflow/start</code> as a deterministic reference workflow for reviewing the
-            planner, graph validation, and protocol layers. LLM calls run in deterministic offline
-            mode by default; live NVIDIA NIM is opt-in via environment configuration.
-          </p>
-        </section>
-        </section>
       </main>
     </div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-
     <script src="config.js"></script>
     <script src="api-client.js"></script>
     <script src="app.js"></script>

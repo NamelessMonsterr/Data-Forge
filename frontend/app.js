@@ -10,7 +10,8 @@ const state = {
   activeTab: "overview",
 };
 
-const elements = {
+const els = {
+  page: document.body.dataset.page || "discover",
   providerStatus: document.querySelector("#providerStatus"),
   heroLlmMode: document.querySelector("#heroLlmMode"),
   heroSearchForm: document.querySelector("#heroSearchForm"),
@@ -30,13 +31,11 @@ const elements = {
   datasetFile: document.querySelector("#datasetFile"),
   uploadRequest: document.querySelector("#uploadRequest"),
   qualityProfile: document.querySelector("#qualityProfile"),
-  loadCatalogButton: document.querySelector("#loadCatalogButton"),
   refreshCatalogButton: document.querySelector("#refreshCatalogButton"),
   catalogGrid: document.querySelector("#catalogGrid"),
   filters: [...document.querySelectorAll(".filter")],
-  pages: [...document.querySelectorAll("[data-page]")],
-  routes: [...document.querySelectorAll("[data-route]")],
   promptButtons: [...document.querySelectorAll("[data-prompt]")],
+  navLinks: [...document.querySelectorAll("[data-nav]")],
   toast: document.querySelector("#toast"),
 };
 
@@ -61,12 +60,11 @@ async function api(path, options = {}) {
   return body;
 }
 
-// Numbers may arrive as 0-1 fractions or 0-100 scores. Normalize to a clean percent.
 function scoreLabel(item) {
   const raw = item.relevance_score ?? item.discovery_score ?? item.quality_score;
-  if (raw === undefined || raw === null || raw === "") return "—";
+  if (raw === undefined || raw === null || raw === "") return "-";
   let n = Number(raw);
-  if (!Number.isFinite(n)) return "—";
+  if (!Number.isFinite(n)) return "-";
   if (n > 0 && n <= 1) n *= 100;
   n = Math.max(0, Math.min(100, Math.round(n)));
   return `${n}%`;
@@ -84,20 +82,6 @@ function metricValue(value) {
 
 function sourceLabel(item) {
   return item.source || item.provider || "local";
-}
-
-function routeTo(page) {
-  const target = ["discover", "upload", "catalog"].includes(page) ? page : "discover";
-  elements.pages.forEach((section) => section.classList.toggle("active", section.dataset.page === target));
-  elements.routes.forEach((link) => link.classList.toggle("active", link.dataset.route === target));
-  if (location.hash.replace("#", "") !== target) {
-    history.replaceState(null, "", `#${target}`);
-  }
-}
-
-function routeFromHash() {
-  const hash = location.hash.replace("#", "");
-  routeTo(hash === "search" ? "discover" : hash || "discover");
 }
 
 function intensityConfig(value) {
@@ -130,7 +114,32 @@ function zipUrl(item) {
   return taskId ? `${API_BASE}/artifacts/${encodeURIComponent(taskId)}/dataset.zip` : "";
 }
 
+function showToast(message, isError = false) {
+  if (!els.toast) return;
+  els.toast.textContent = message;
+  els.toast.classList.toggle("error", isError);
+  els.toast.classList.add("show");
+  window.clearTimeout(showToast.timeoutId);
+  showToast.timeoutId = window.setTimeout(() => els.toast.classList.remove("show"), 2200);
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function setActiveNav() {
+  els.navLinks.forEach((link) => link.classList.toggle("active", link.dataset.nav === els.page));
+}
+
+function renderLoadingResults() {
+  if (!els.resultsList) return;
+  els.resultsList.innerHTML = Array.from({ length: 4 })
+    .map(() => `<div class="skeleton"></div>`)
+    .join("");
+}
+
 function renderResults() {
+  if (!els.resultsList) return;
   const filtered = state.results.filter((item) => {
     if (state.activeFilter === "all") return true;
     const source = sourceLabel(item).toLowerCase();
@@ -139,7 +148,7 @@ function renderResults() {
     return [source, provider, domain].includes(state.activeFilter);
   });
 
-  elements.resultsList.innerHTML = filtered.length
+  els.resultsList.innerHTML = filtered.length
     ? filtered.map(renderResultCard).join("")
     : `<div class="empty-state result-card"><h3>No datasets found</h3><p>Try a broader search or upload a dataset first.</p></div>`;
 
@@ -166,7 +175,7 @@ function renderResultCard(item) {
           <h3>${escapeHtml(item.title)}</h3>
           <p>${escapeHtml(summary)}</p>
         </div>
-        ${score !== "—" ? `<div class="score">${escapeHtml(score)}</div>` : ""}
+        ${score !== "-" ? `<div class="score">${escapeHtml(score)}</div>` : ""}
       </div>
       <div class="meta-row">
         <span>${escapeHtml(sourceLabel(item))}</span>
@@ -182,8 +191,9 @@ function renderResultCard(item) {
 
 function renderDetails() {
   const item = state.activeDataset;
+  if (!els.detailsPane) return;
   if (!item) {
-    elements.detailsPane.innerHTML = `
+    els.detailsPane.innerHTML = `
       <div class="empty-state">
         <h3>Select a dataset</h3>
         <p>Open a result to inspect summary, schema, quality, and artifacts.</p>
@@ -192,7 +202,7 @@ function renderDetails() {
     return;
   }
   const tabs = ["overview", "card", "schema", "quality", "artifacts", "recommendations"];
-  elements.detailsPane.innerHTML = `
+  els.detailsPane.innerHTML = `
     <h3>${escapeHtml(item.title)}</h3>
     <div class="meta-row">
       <span>${escapeHtml(sourceLabel(item))}</span>
@@ -214,11 +224,10 @@ function renderDetails() {
 function renderTab(item) {
   const schema = item.schema || {};
   if (state.activeTab === "card") {
-    const card = item.dataset_card;
     return `
       <div class="detail-section">
         <h4>Dataset card</h4>
-        ${card ? `<pre class="dataset-card">${escapeHtml(card)}</pre>` : "<p>No dataset card yet. Upload and process a dataset to generate one.</p>"}
+        ${item.dataset_card ? `<pre class="dataset-card">${escapeHtml(item.dataset_card)}</pre>` : "<p>No dataset card yet. Upload and process a dataset to generate one.</p>"}
       </div>
     `;
   }
@@ -248,12 +257,8 @@ function renderTab(item) {
   if (state.activeTab === "quality") {
     const metrics = item.quality_metrics || {};
     const dimensionCards = Object.entries(metrics)
-      .map(
-        ([name, value]) =>
-          `<div class="metric"><span>${escapeHtml(name.replaceAll("_", " "))}</span><strong>${escapeHtml(metricValue(value))}</strong></div>`,
-      )
+      .map(([name, value]) => `<div class="metric"><span>${escapeHtml(name.replaceAll("_", " "))}</span><strong>${escapeHtml(metricValue(value))}</strong></div>`)
       .join("");
-    const narrative = item.quality_narrative;
     return `
       <div class="detail-section">
         <h4>Quality</h4>
@@ -263,7 +268,7 @@ function renderTab(item) {
           <div class="metric"><span>Overall quality</span><strong>${escapeHtml(metricValue(item.quality_score))}</strong></div>
           <div class="metric"><span>Semantic score</span><strong>${escapeHtml(metricValue(item.semantic_relevance))}</strong></div>
         </div>
-        ${narrative ? `<p class="ai-narrative">${escapeHtml(narrative)}</p>` : ""}
+        ${item.quality_narrative ? `<p class="ai-narrative">${escapeHtml(item.quality_narrative)}</p>` : ""}
         ${dimensionCards ? `<h4>Dimension breakdown</h4><div class="metric-grid">${dimensionCards}</div>` : ""}
       </div>
     `;
@@ -276,11 +281,7 @@ function renderTab(item) {
         <h4>Artifacts</h4>
         <div class="artifact-links">
           ${download ? `<a href="${escapeHtml(download)}">Download ZIP package</a>` : ""}
-          ${
-            Object.entries(artifacts)
-              .map(([name, path]) => `<span>${escapeHtml(name)}: ${escapeHtml(path)}</span>`)
-              .join("") || "<p>No artifacts available for public candidates.</p>"
-          }
+          ${Object.entries(artifacts).map(([name, path]) => `<span>${escapeHtml(name)}: ${escapeHtml(path)}</span>`).join("") || "<p>No artifacts available for public candidates.</p>"}
         </div>
       </div>
     `;
@@ -311,19 +312,13 @@ function renderTab(item) {
   `;
 }
 
-function renderLoadingResults() {
-  elements.resultsList.innerHTML = Array.from({ length: 4 })
-    .map(() => `<div class="skeleton"></div>`)
-    .join("");
-}
-
-async function runSearch(query, includePublic = true, intensity = elements.searchIntensity?.value || "medium") {
+async function runSearch(query, includePublic = true, intensity = els.searchIntensity?.value || "medium") {
   const config = intensityConfig(intensity);
   renderLoadingResults();
-  elements.searchStatus.textContent = `Understanding query · ${config.label} intensity`;
-  showToast(`Understanding query · ${config.label}`);
+  if (els.searchStatus) els.searchStatus.textContent = `Understanding query - ${config.label} intensity`;
+  showToast(`Understanding query - ${config.label}`);
   await wait(160);
-  elements.searchStatus.textContent = `Searching datasets · ${config.description}`;
+  if (els.searchStatus) els.searchStatus.textContent = `Searching datasets - ${config.description}`;
   const body = await api("/datasets/search", {
     method: "POST",
     body: JSON.stringify({
@@ -333,36 +328,37 @@ async function runSearch(query, includePublic = true, intensity = elements.searc
       search_intensity: intensity,
     }),
   });
-  elements.searchStatus.textContent = "Ranking relevance and generating recommendations";
   await wait(160);
   state.results = body.results || [];
   state.activeDataset = state.results[0] || null;
   state.activeTab = "overview";
-  elements.resultContext.textContent = `Results for "${query}"`;
-  elements.searchStatus.textContent = `${body.counts?.returned || 0} results · ${config.label} intensity · local ${body.counts?.local || 0} · public ${body.counts?.public || 0}`;
+  if (els.resultContext) els.resultContext.textContent = `Results for "${query}"`;
+  if (els.searchStatus) {
+    els.searchStatus.textContent = `${body.counts?.returned || 0} results - ${config.label} intensity - local ${body.counts?.local || 0} - public ${body.counts?.public || 0}`;
+  }
   showToast("Search complete.");
   renderResults();
   renderDetails();
-  routeTo("discover");
 }
+
 async function loadCatalog() {
-  elements.searchStatus.textContent = "Loading local catalog…";
+  if (els.searchStatus) els.searchStatus.textContent = "Loading local catalog...";
   const body = await api("/datasets/catalog");
   state.results = body.datasets || [];
   state.activeDataset = state.results[0] || null;
   state.activeTab = "overview";
-  elements.resultContext.textContent = "Local catalog";
-  elements.searchStatus.textContent = `${state.results.length} indexed datasets.`;
-  showToast("Catalog refreshed.");
+  if (els.resultContext) els.resultContext.textContent = "Local catalog";
+  if (els.searchStatus) els.searchStatus.textContent = `${state.results.length} indexed datasets.`;
   renderResults();
   renderDetails();
   renderCatalogGrid();
-  routeTo("catalog");
+  showToast("Catalog refreshed.");
 }
 
 function renderCatalogGrid() {
+  if (!els.catalogGrid) return;
   const items = state.results.filter((item) => sourceLabel(item) === "local_upload");
-  elements.catalogGrid.innerHTML = items.length
+  els.catalogGrid.innerHTML = items.length
     ? items
         .map(
           (item) => `
@@ -372,6 +368,7 @@ function renderCatalogGrid() {
         <div class="meta-row">
           <span>${escapeHtml(fmtInt(item.rows))} rows</span>
           <span>quality ${escapeHtml(metricValue(item.quality_score))}</span>
+          <span class="difficulty ${escapeHtml(difficultyLabel(item).toLowerCase().replaceAll(" ", "-"))}">${escapeHtml(difficultyLabel(item))}</span>
         </div>
       </article>`,
         )
@@ -381,14 +378,14 @@ function renderCatalogGrid() {
 
 async function processUpload(event) {
   event.preventDefault();
-  const file = elements.datasetFile.files[0];
+  const file = els.datasetFile?.files?.[0];
   if (!file) {
     renderUploadError("Choose a CSV, JSON, or JSONL file first.");
     return;
   }
   setStepper(0);
   showToast("Upload started.");
-  elements.uploadResult.querySelector("p")?.replaceChildren(document.createTextNode("Uploading dataset…"));
+  els.uploadResult?.querySelector("p")?.replaceChildren(document.createTextNode("Uploading dataset..."));
   const content = await file.text();
   setStepper(1);
   await wait(220);
@@ -399,8 +396,8 @@ async function processUpload(event) {
     body: JSON.stringify({
       filename: file.name,
       content,
-      request: elements.uploadRequest.value || "Analyze this uploaded dataset.",
-      quality_profile: elements.qualityProfile?.value || "production",
+      request: els.uploadRequest?.value || "Analyze this uploaded dataset.",
+      quality_profile: els.qualityProfile?.value || "production",
     }),
   });
   setStepper(3);
@@ -412,177 +409,156 @@ async function processUpload(event) {
   setStepper(6);
   showToast("Dataset processed and indexed.");
   const zip = zipUrl(result) || `${API_BASE}/artifacts/${encodeURIComponent(result.task_id)}/dataset.zip`;
-  elements.uploadResult.innerHTML = `
+  if (!els.uploadResult) return;
+  els.uploadResult.innerHTML = `
     <h3>Dataset processed successfully</h3>
     <div class="metric-grid">
       <div class="metric"><span>Rows</span><strong>${escapeHtml(fmtInt(result.summary.rows))}</strong></div>
       <div class="metric"><span>Columns</span><strong>${escapeHtml(metricValue(result.summary.columns))}</strong></div>
       <div class="metric"><span>Quality score</span><strong>${escapeHtml(metricValue(result.quality_report.score))}</strong></div>
-      <div class="metric"><span>Target</span><strong>${escapeHtml(result.quality_report.profile || elements.qualityProfile?.value || "production")}</strong></div>
+      <div class="metric"><span>Target</span><strong>${escapeHtml(result.quality_report.profile || els.qualityProfile?.value || "production")}</strong></div>
       <div class="metric"><span>Duplicates</span><strong>${escapeHtml(metricValue(result.summary.duplicate_rows))}</strong></div>
     </div>
-    <div class="detail-section">
-      <h4>Summary</h4>
-      <p>${escapeHtml(result.ingestion.filename)} was normalized, analyzed, packaged, and indexed into the catalog.</p>
-    </div>
-    ${
-      result.quality_report?.narrative
-        ? `<div class="detail-section"><h4>Quality assessment</h4><p class="ai-narrative">${escapeHtml(result.quality_report.narrative)}</p></div>`
-        : ""
-    }
+    ${result.quality_report?.narrative ? `<div class="detail-section"><h4>Quality assessment</h4><p class="ai-narrative">${escapeHtml(result.quality_report.narrative)}</p></div>` : ""}
     <div class="hero-actions">
-      <button class="button secondary" id="viewProcessed" type="button">View dataset</button>
+      <a class="button secondary" href="catalog.html">View catalog</a>
       <a class="button primary" href="${escapeHtml(zip)}">Download ZIP</a>
-      <button class="button ghost" id="searchSimilar" type="button">Search similar</button>
+      <a class="button ghost" href="index.html?q=${encodeURIComponent(file.name.replace(/\.[^.]+$/, ""))}">Search similar</a>
     </div>
   `;
-  document.querySelector("#viewProcessed")?.addEventListener("click", loadCatalog);
-  document.querySelector("#searchSimilar")?.addEventListener("click", () =>
-    runSearch(file.name.replace(/\.[^.]+$/, ""), true),
-  );
 }
 
 function setStepper(count) {
-  [...elements.uploadStepper.querySelectorAll("div")].forEach((step, index) => {
+  if (!els.uploadStepper) return;
+  [...els.uploadStepper.querySelectorAll("div")].forEach((step, index) => {
     step.classList.toggle("done", index < count);
     step.classList.toggle("active", index === count && count < 6);
   });
 }
 
 function renderUploadError(message) {
-  elements.uploadResult.innerHTML = `<h3 class="error">Upload failed</h3><p>${escapeHtml(message)}</p>`;
+  if (els.uploadResult) els.uploadResult.innerHTML = `<h3 class="error">Upload failed</h3><p>${escapeHtml(message)}</p>`;
   showToast(message, true);
 }
 
-// Honest by default: show Offline Mode unless the backend reports a live provider.
 async function loadProviderStatus() {
+  if (!els.providerStatus) return;
   try {
     const status = await api("/ai/llm/status");
     const active = String(status.active_provider || "").toLowerCase();
     const mode = String(status.mode || "").toLowerCase();
     const live = status.live_llm === true || mode === "live" || mode === "live_provider";
     if (live && active) {
-      elements.providerStatus.textContent = `AI Status · ${active.toUpperCase()}`;
-      elements.providerStatus.dataset.mode = "live";
-      if (elements.heroLlmMode) {
-        elements.heroLlmMode.textContent = `Live · ${active}`;
-        elements.heroLlmMode.className = "ok";
+      els.providerStatus.textContent = `AI Status - ${active.toUpperCase()}`;
+      els.providerStatus.dataset.mode = "live";
+      if (els.heroLlmMode) {
+        els.heroLlmMode.textContent = `Live - ${active}`;
+        els.heroLlmMode.className = "ok";
       }
     } else {
-      elements.providerStatus.textContent = "AI Status · Offline Mode";
-      elements.providerStatus.dataset.mode = "offline";
+      els.providerStatus.textContent = "AI Status - Offline Mode";
+      els.providerStatus.dataset.mode = "offline";
     }
-    elements.providerStatus.title = `Retries: ${status.max_retries ?? "n/a"} · Cooldown: ${status.cooldown_seconds ?? "n/a"}s`;
+    els.providerStatus.title = `Retries: ${status.max_retries ?? "n/a"} - Cooldown: ${status.cooldown_seconds ?? "n/a"}s`;
   } catch {
-    elements.providerStatus.textContent = "AI Status · Offline Mode";
-    elements.providerStatus.dataset.mode = "offline";
+    els.providerStatus.textContent = "AI Status - Offline Mode";
+    els.providerStatus.dataset.mode = "offline";
   }
 }
 
-function wait(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function showToast(message, isError = false) {
-  elements.toast.textContent = message;
-  elements.toast.classList.toggle("error", isError);
-  elements.toast.classList.add("show");
-  window.clearTimeout(showToast.timeoutId);
-  showToast.timeoutId = window.setTimeout(() => {
-    elements.toast.classList.remove("show");
-  }, 2200);
-}
-
-/* ---------- events ---------- */
-elements.heroSearchForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-  elements.searchQuery.value = elements.heroQuery.value;
-  runSearch(elements.heroQuery.value || "healthcare datasets", true, elements.searchIntensity?.value).catch((error) => {
-    elements.searchStatus.textContent = error.message;
-    showToast(error.message, true);
-  });
-});
-
-elements.searchForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-  runSearch(elements.searchQuery.value || "datasets", elements.includePublic.checked, elements.searchIntensity?.value).catch((error) => {
-    elements.searchStatus.textContent = error.message;
-    showToast(error.message, true);
-  });
-});
-
-elements.filters.forEach((button) => {
-  button.addEventListener("click", () => {
-    state.activeFilter = button.dataset.filter;
-    elements.filters.forEach((filter) => filter.classList.toggle("active", filter === button));
-    renderResults();
-  });
-});
-
-elements.promptButtons.forEach((button) => {
-  button.addEventListener("click", () => {
-    const prompt = button.dataset.prompt;
-    elements.heroQuery.value = prompt;
-    elements.searchQuery.value = prompt;
-    runSearch(prompt, true, elements.searchIntensity?.value).catch((error) => {
-      elements.searchStatus.textContent = error.message;
+function bindDiscoverPage() {
+  els.heroSearchForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (els.searchQuery) els.searchQuery.value = els.heroQuery?.value || "";
+    runSearch(els.heroQuery?.value || "healthcare datasets", true, els.searchIntensity?.value).catch((error) => {
+      if (els.searchStatus) els.searchStatus.textContent = error.message;
       showToast(error.message, true);
     });
   });
-});
 
-elements.uploadForm.addEventListener("submit", (event) => {
-  processUpload(event).catch((error) => renderUploadError(error.message));
-});
-
-elements.loadCatalogButton.addEventListener("click", () => {
-  loadCatalog().catch((error) => {
-    elements.searchStatus.textContent = error.message;
-    routeTo("discover");
+  els.searchForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    runSearch(els.searchQuery?.value || "datasets", Boolean(els.includePublic?.checked), els.searchIntensity?.value).catch((error) => {
+      if (els.searchStatus) els.searchStatus.textContent = error.message;
+      showToast(error.message, true);
+    });
   });
-});
 
-elements.refreshCatalogButton.addEventListener("click", () => {
-  loadCatalog().catch((error) => {
-    elements.catalogGrid.innerHTML = `<div class="catalog-card error">${escapeHtml(error.message)}</div>`;
+  els.promptButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const prompt = button.dataset.prompt;
+      if (els.heroQuery) els.heroQuery.value = prompt;
+      if (els.searchQuery) els.searchQuery.value = prompt;
+      runSearch(prompt, true, els.searchIntensity?.value).catch((error) => {
+        if (els.searchStatus) els.searchStatus.textContent = error.message;
+        showToast(error.message, true);
+      });
+    });
   });
-});
 
-// Drag-and-drop enhancement for the upload drop zone.
-if (elements.dropZone) {
-  ["dragenter", "dragover"].forEach((evt) =>
-    elements.dropZone.addEventListener(evt, (e) => {
-      e.preventDefault();
-      elements.dropZone.classList.add("dragover");
-    }),
-  );
-  ["dragleave", "drop"].forEach((evt) =>
-    elements.dropZone.addEventListener(evt, (e) => {
-      e.preventDefault();
-      elements.dropZone.classList.remove("dragover");
-    }),
-  );
-  elements.dropZone.addEventListener("drop", (e) => {
-    const file = e.dataTransfer?.files?.[0];
-    if (file) elements.datasetFile.files = e.dataTransfer.files;
+  els.filters.forEach((button) => {
+    button.addEventListener("click", () => {
+      state.activeFilter = button.dataset.filter;
+      els.filters.forEach((filter) => filter.classList.toggle("active", filter === button));
+      renderResults();
+    });
+  });
+
+  const query = new URLSearchParams(location.search).get("q");
+  if (query) {
+    if (els.heroQuery) els.heroQuery.value = query;
+    if (els.searchQuery) els.searchQuery.value = query;
+    runSearch(query, true, els.searchIntensity?.value).catch((error) => showToast(error.message, true));
+  } else {
+    renderResults();
+    renderDetails();
+  }
+}
+
+function bindUploadPage() {
+  els.uploadForm?.addEventListener("submit", (event) => {
+    processUpload(event).catch((error) => renderUploadError(error.message));
+  });
+  if (els.dropZone) {
+    ["dragenter", "dragover"].forEach((eventName) =>
+      els.dropZone.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        els.dropZone.classList.add("dragover");
+      }),
+    );
+    ["dragleave", "drop"].forEach((eventName) =>
+      els.dropZone.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        els.dropZone.classList.remove("dragover");
+      }),
+    );
+    els.dropZone.addEventListener("drop", (event) => {
+      const file = event.dataTransfer?.files?.[0];
+      if (file && els.datasetFile) els.datasetFile.files = event.dataTransfer.files;
+    });
+  }
+}
+
+function bindCatalogPage() {
+  els.refreshCatalogButton?.addEventListener("click", () => {
+    loadCatalog().catch((error) => {
+      if (els.catalogGrid) els.catalogGrid.innerHTML = `<div class="catalog-card error">${escapeHtml(error.message)}</div>`;
+    });
+  });
+  loadCatalog().catch((error) => {
+    if (els.catalogGrid) els.catalogGrid.innerHTML = `<div class="catalog-card error">${escapeHtml(error.message)}</div>`;
   });
 }
 
-// "/" focuses the search field.
-document.addEventListener("keydown", (e) => {
-  if (e.key === "/" && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") {
-    e.preventDefault();
-    elements.searchQuery.focus();
+document.addEventListener("keydown", (event) => {
+  if (event.key === "/" && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") {
+    event.preventDefault();
+    els.searchQuery?.focus();
   }
 });
 
-window.addEventListener("hashchange", routeFromHash);
-elements.routes.forEach((link) => {
-  link.addEventListener("click", () => routeTo(link.dataset.route));
-});
-
+setActiveNav();
 loadProviderStatus();
-routeFromHash();
-renderResults();
-renderDetails();
-renderCatalogGrid();
+if (els.page === "discover") bindDiscoverPage();
+if (els.page === "upload") bindUploadPage();
+if (els.page === "catalog") bindCatalogPage();

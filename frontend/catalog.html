@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DataForge · Catalog</title>
+    <meta name="description" content="Browse the indexed DataForge dataset catalog." />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body data-page="catalog">
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="index.html" aria-label="DataForge home">
+          <span class="brand-mark" aria-hidden="true">DF</span>
+          <span>DataForge</span>
+        </a>
+        <nav class="nav" aria-label="Primary navigation">
+          <a href="index.html" data-nav="discover">Discover</a>
+          <a href="upload.html" data-nav="upload">Upload</a>
+          <a href="catalog.html" data-nav="catalog">Catalog</a>
+        </nav>
+        <button class="provider" id="providerStatus" data-mode="offline" type="button" title="LLM provider status">AI Status · Offline Mode</button>
+      </header>
+
+      <main>
+        <section class="workspace">
+          <div class="section-heading">
+            <div>
+              <h2>Catalog</h2>
+              <p>Browse indexed datasets, sort by quality, and open generated artifacts.</p>
+            </div>
+            <button class="button secondary" id="refreshCatalogButton" type="button">Refresh catalog</button>
+          </div>
+          <div class="catalog-grid" id="catalogGrid"></div>
+        </section>
+
+        <section class="workspace about">
+          <h2>How DataForge works</h2>
+          <p>
+            DataForge separates discovery, upload processing, and catalog review into distinct workflows.
+            The upload path performs parsing, schema inference, statistics, checksums, and ZIP packaging.
+            Search uses the indexed catalog and optional live public providers. LLM calls stay deterministic
+            offline by default and can be upgraded to NVIDIA NIM through environment configuration.
+          </p>
+        </section>
+      </main>
+    </div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="config.js"></script>
+    <script src="api-client.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
