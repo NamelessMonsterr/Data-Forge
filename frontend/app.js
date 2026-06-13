@@ -1,4 +1,7 @@
-const API_BASE = window.DATAFORGE_API_BASE || "http://127.0.0.1:8000";
+const API_BASE =
+  window.DATAFORGE_API_BASE ||
+  window.DataForgeConfig?.apiBase ||
+  "http://127.0.0.1:8000";
 
 const state = {
   results: [],

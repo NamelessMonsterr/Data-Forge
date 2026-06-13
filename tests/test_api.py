@@ -6,7 +6,7 @@ from backend.app.main import app
 
 
 def test_workflow_start_executes_vertical_slice():
-    """The workflow endpoint should return execution messages and artifacts."""
+    """The workflow endpoint should abort cleanly when live discovery is disabled."""
     client = TestClient(app)
 
     response = client.post(
@@ -16,11 +16,12 @@ def test_workflow_start_executes_vertical_slice():
 
     body = response.json()
     assert response.status_code == 200
-    assert body["status"] == "completed"
+    assert body["status"] == "aborted"
     assert body["workflow"] == "multilingual_dataset"
-    assert body["artifacts"]["dataset_zip"].endswith("dataset.zip")
+    assert body["artifacts"] == {}
     assert body["messages"][0]["agent"] == "requirement_analyzer"
-    assert "benchmark" in [message["agent"] for message in body["messages"]]
+    assert "license" in [message["agent"] for message in body["messages"]]
+    assert "benchmark" not in [message["agent"] for message in body["messages"]]
     assert "planner_mutations" in body
     assert body["planner_confidence"] > 0
     assert body["planner_alternatives"]
@@ -64,7 +65,7 @@ def test_local_frontend_origin_is_allowed_by_cors():
 
 
 def test_discovery_search_endpoint_returns_ranked_candidates():
-    """Discovery API should expose ranked candidates without ingestion."""
+    """Discovery API should be honest when live public discovery is disabled."""
     client = TestClient(app)
 
     response = client.post(
@@ -75,8 +76,8 @@ def test_discovery_search_endpoint_returns_ranked_candidates():
 
     assert response.status_code == 200
     assert body["planning"]["confidence"] > 0
-    assert body["candidates"]
-    assert body["candidates"][0]["discovery_score"] >= body["candidates"][-1]["discovery_score"]
+    assert body["candidates"] == []
+    assert body["discovery"]["enabled"] is False
     assert "providers" in body["provider_status"]
 
 
@@ -181,7 +182,7 @@ def test_dataset_search_endpoint_finds_processed_uploads():
         for item in catalog["datasets"]
     )
     assert search["counts"]["local"] >= 1
-    assert search["counts"]["public"] >= 1
+    assert search["counts"]["public"] == 0
     assert any(item["source"] == "local_upload" for item in search["results"])
 
 
@@ -205,6 +206,7 @@ def test_project_and_run_status_surfaces():
 
     assert status["run"]["task_id"] == workflow["task_id"]
     assert status["run"]["project_id"] == project["project_id"]
+    assert workflow["status"] == "aborted"
     assert project_detail["project"]["name"] == "Healthcare Dataset"
     assert project_detail["runs"]
 

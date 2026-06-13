@@ -1,17 +1,14 @@
-"""Execution engine tests for the hackathon vertical slice."""
+"""Execution engine tests for production discovery behavior."""
 
 from pathlib import Path
-from zipfile import ZipFile
 
 from backend.core.execution import ExecutionEngine
 from planner.planner import RuleBasedPlanner
 
 
-def test_execution_engine_creates_dataset_zip(tmp_path: Path):
-    """A valid workflow should produce reports and a dataset ZIP."""
-    request = {"request": "I need a Hindi-English instruction dataset for healthcare."}
+def _run(request: dict, tmp_path: Path):
     plan = RuleBasedPlanner().plan(request)
-    result = ExecutionEngine(artifacts_root=tmp_path).execute(
+    return ExecutionEngine(artifacts_root=tmp_path).execute(
         plan.workflow,
         request,
         {
@@ -20,85 +17,61 @@ def test_execution_engine_creates_dataset_zip(tmp_path: Path):
         },
     )
 
-    zip_path = Path(result.artifacts["dataset_zip"])
-    assert result.status == "completed"
-    assert zip_path.exists()
-    assert [message.next_action.value for message in result.messages]
-    with ZipFile(zip_path) as archive:
-        names = set(archive.namelist())
-    assert "dataset.jsonl" in names
-    assert "dataset_card.md" in names
-    assert "dataset_card.json" in names
-    assert "manifest.json" in names
-    assert "reports/dataset_intelligence_report.md" in names
-    assert "reports/explainability_report.md" in names
-    assert "reports/benchmark_report.md" in names
 
-
-def test_execution_engine_uses_generation_only_for_gap_workflow(tmp_path: Path):
-    """The generator should run only for a workflow that includes it."""
-    request = {"request": "Generate rare healthcare edge cases after search."}
-    plan = RuleBasedPlanner().plan(request)
-    result = ExecutionEngine(artifacts_root=tmp_path).execute(
-        plan.workflow,
-        request,
-        {
-            "structured_requirement": plan.structured_requirement,
-            "planner_rationale": plan.rationale,
-        },
+def test_execution_engine_aborts_cleanly_when_discovery_is_disabled(tmp_path: Path):
+    """Production offline discovery should not fabricate candidates for packaging."""
+    result = _run(
+        {"request": "I need a Hindi-English instruction dataset for healthcare."},
+        tmp_path,
     )
 
-    assert result.status == "completed"
-    assert "generator" in [message.agent for message in result.messages]
-    assert result.state["synthetic_samples_added"] == 1
+    assert result.status == "aborted"
+    assert result.artifacts == {}
+    assert [message.agent for message in result.messages] == [
+        "requirement_analyzer",
+        "clarification",
+        "discovery",
+        "license",
+    ]
+    assert result.state["candidate_datasets"] == []
+    assert result.state["discovery_status"]["enabled"] is False
+    assert result.state["license_verdict"] == "rejected"
 
 
-def test_execution_engine_exports_search_only_candidate_metadata(tmp_path: Path):
-    """Search-only workflows should package approved candidate metadata."""
-    request = {"request": "Find datasets for healthcare candidate datasets only."}
-    plan = RuleBasedPlanner().plan(request)
-    result = ExecutionEngine(artifacts_root=tmp_path).execute(
-        plan.workflow,
-        request,
-        {
-            "structured_requirement": plan.structured_requirement,
-            "planner_rationale": plan.rationale,
-        },
+def test_generation_workflow_aborts_before_generation_without_candidates(tmp_path: Path):
+    """Generator should not run when discovery/license gates have no candidates."""
+    result = _run(
+        {"request": "Generate rare healthcare edge cases after search."},
+        tmp_path,
     )
 
-    assert result.status == "completed"
+    assert result.status == "aborted"
+    assert "generator" not in [message.agent for message in result.messages]
+    assert result.state["candidate_datasets"] == []
+
+
+def test_search_only_workflow_does_not_package_fabricated_metadata(tmp_path: Path):
+    """Search-only workflows should not create artifacts from invented candidates."""
+    result = _run(
+        {"request": "Find datasets for healthcare candidate datasets only."},
+        tmp_path,
+    )
+
+    assert result.status == "aborted"
     assert result.workflow == "dataset_search_only"
-    assert result.state["validation_report"]["mode"] == "metadata"
-    assert Path(result.artifacts["dataset_zip"]).exists()
-    assert result.state["manifest"].endswith("manifest.json")
-    assert result.state["checksums"]
+    assert result.artifacts == {}
+    assert result.state["candidate_datasets"] == []
 
 
-def test_execution_engine_runs_full_platform_agents(tmp_path: Path):
-    """The multilingual workflow should include core registry workers but keep reports as services."""
-    request = {"request": "I need a Hindi-English instruction dataset for healthcare."}
-    plan = RuleBasedPlanner().plan(request)
-    result = ExecutionEngine(artifacts_root=tmp_path).execute(
-        plan.workflow,
-        request,
-        {
-            "structured_requirement": plan.structured_requirement,
-            "planner_rationale": plan.rationale,
-        },
+def test_workflow_stops_at_license_gate_without_approved_candidates(tmp_path: Path):
+    """The license hard gate should stop the workflow before downstream agents."""
+    result = _run(
+        {"request": "I need a Hindi-English instruction dataset for healthcare."},
+        tmp_path,
     )
 
     agents = [message.agent for message in result.messages]
-    assert "merge" in agents
-    assert "cleaning" in agents
-    assert "translation" in agents
-    assert "bias" in agents
-    assert "critic" in agents
-    assert "benchmark" in agents
-    assert "reporter" not in agents
-    assert result.state["benchmark_report"]["training_readiness"] == "PASS"
-    assert result.state["license_decisions"]
-    assert all(
-        decision["status"] == "APPROVED"
-        for decision in result.state["license_decisions"]
-        if decision["compatible"]
-    )
+    assert agents == ["requirement_analyzer", "clarification", "discovery", "license"]
+    assert "merge" not in agents
+    assert "benchmark" not in agents
+    assert result.state["license_decisions"] == []

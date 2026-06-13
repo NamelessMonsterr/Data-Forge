@@ -313,25 +313,23 @@ class UnifiedDatasetSearchService:
         }
 
     def _public_results(self, query: str, limit: int) -> list[dict[str, Any]]:
-        requirement = {
-            "raw_request": query,
-            "domain": self._domain_hint(query),
-            "languages": ["english"],
-            "target_model": "nemotron",
-            "intended_use": "commercial",
-        }
-        candidates = self.discovery.search(requirement)[:limit]
+        discovery_payload = self.discovery.search(query, limit=limit)
+        candidates = discovery_payload.get("results", [])[:limit]
         results = []
         for candidate in candidates:
-            score = candidate.get("discovery_score", 0.0)
+            score = candidate.get("discovery_score", 0.0) or min(
+                1.0,
+                float(candidate.get("downloads", 0)) / 5000,
+            )
             results.append(
                 {
                     **candidate,
                     "source": "public",
                     "relevance_score": score,
+                    "discovery_score": score,
                     "recommendation": (
-                        "Recommended from public discovery because provider metadata, "
-                        "license confidence, and query relevance ranked it highly."
+                        "Recommended from live public discovery because provider "
+                        "metadata and source popularity matched the query."
                     ),
                 }
             )

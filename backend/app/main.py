@@ -7,9 +7,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
+from backend.app.health import HealthService, make_sqlite_check
+from backend.app.observability import configure_logging
+from backend.app.security import SecurityConfig, build_security_middleware
 from backend.core.agent_manifest import all_agent_manifests
 from backend.core.execution import ExecutionEngine
-from backend.core.repository import JsonRepository, RunRecord, utc_now
+from backend.core.repository import RunRecord, get_repository, utc_now
 from backend.core.registry import AGENT_REGISTRY, capability_matrix
 from backend.core.service_manifest import all_service_manifests
 from backend.core.settings import get_settings
@@ -22,6 +25,20 @@ from planner.planner import RuleBasedPlanner
 from planner.workflow_library import WORKFLOW_LIBRARY
 from router.hybrid_router import HybridRouter
 
+configure_logging()
+security_config = SecurityConfig.from_env()
+cors_origins = list(
+    dict.fromkeys(
+        [
+            *security_config.cors_origins,
+            "http://127.0.0.1:5173",
+            "http://localhost:5173",
+            "http://127.0.0.1:8080",
+            "http://localhost:8080",
+        ]
+    )
+)
+
 app = FastAPI(
     title="DataForge AI",
     description="Autonomous AI Data Engineering Platform",
@@ -29,21 +46,22 @@ app = FastAPI(
 )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://127.0.0.1:5173",
-        "http://localhost:5173",
-        "http://127.0.0.1:8080",
-        "http://localhost:8080",
-    ],
+    allow_origins=cors_origins,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(build_security_middleware(security_config))
+
+health_service = HealthService()
 
 
-def repository() -> JsonRepository:
+def repository():
     """Create the configured repository boundary."""
-    return JsonRepository(get_settings().storage.state_path)
+    return get_repository()
+
+
+health_service.register("repository", make_sqlite_check(repository()))
 
 
 def safe_task_id(task_id: str) -> str:
@@ -55,7 +73,15 @@ def safe_task_id(task_id: str) -> str:
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "service": "dataforge-ai"}
+    payload = health_service.liveness()
+    payload["service"] = "dataforge-ai"
+    return payload
+
+
+@app.get("/ready")
+def ready() -> dict:
+    """Return readiness checks for runtime dependencies."""
+    return health_service.readiness()
 
 
 @app.get("/agents")
@@ -99,7 +125,14 @@ def discovery_search(payload: dict) -> dict:
     planner = RuleBasedPlanner()
     plan = planner.plan(payload)
     service = DiscoveryService()
-    candidates = service.search(plan.structured_requirement)
+    query = str(
+        plan.structured_requirement.get("raw_request")
+        or plan.structured_requirement.get("domain")
+        or payload.get("request")
+        or ""
+    )
+    discovery_payload = service.search(query, limit=int(payload.get("limit", 10)))
+    candidates = discovery_payload.get("results", [])
     return {
         "structured_requirement": plan.structured_requirement,
         "planning": {
@@ -110,6 +143,7 @@ def discovery_search(payload: dict) -> dict:
         },
         "candidates": candidates,
         "provider_status": service.provider_status(),
+        "discovery": discovery_payload,
     }
 
 

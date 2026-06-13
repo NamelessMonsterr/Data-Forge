@@ -361,8 +361,12 @@ curl -X POST http://127.0.0.1:8000/workflow/start \
   -d '{"request":"I need a Hindi-English instruction dataset for healthcare."}'
 ```
 
-The response includes the selected workflow, confidence-protocol agent messages,
-report paths, and the generated `dataset.zip` path under `tmp/dataforge_runs/`.
+The response includes the selected workflow and confidence-protocol agent messages.
+In offline production mode, public discovery is disabled by default, so workflows
+that require public candidates stop cleanly at the license gate instead of
+fabricating datasets. When live discovery is enabled and approved candidates are
+found, downstream packaging can generate reports and `dataset.zip` artifacts under
+`tmp/dataforge_runs/`.
 
 Additional platform surfaces:
 
@@ -403,13 +407,13 @@ changing planner, agent, or execution-engine code.
 Live discovery is opt-in:
 
 ```powershell
-$env:DATAFORGE_LIVE_DISCOVERY="true"
+$env:DATAFORGE_DISCOVERY_LIVE="true"
 $env:GITHUB_TOKEN="<optional-token>"
 $env:DATAFORGE_WEB_SEARCH_ENDPOINT="<optional-json-search-endpoint>"
 ```
 
-When live discovery is disabled or a provider fails, DataForge keeps returning ranked
-offline candidates from the local provider catalog.
+When live discovery is disabled or a provider fails, DataForge returns no fabricated
+public candidates. Uploaded datasets remain searchable through the local catalog.
 
 ## Documentation
 

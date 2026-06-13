@@ -31,7 +31,7 @@ def test_catalog_indexes_processed_upload_and_searches_by_schema(tmp_path: Path)
     assert "recommended" in matches[0]["recommendation"]
 
 
-def test_unified_search_merges_local_and_public_results(tmp_path: Path):
+def test_unified_search_returns_local_and_no_fabricated_public_results(tmp_path: Path):
     repository = JsonRepository(tmp_path / "state.json")
     result = DatasetProcessingService(tmp_path / "artifacts").process(
         filename="diabetes.csv",
@@ -48,6 +48,6 @@ def test_unified_search_merges_local_and_public_results(tmp_path: Path):
     )
 
     assert search["counts"]["local"] >= 1
-    assert search["counts"]["public"] >= 1
+    assert search["counts"]["public"] == 0
     assert search["results"]
-    assert {item["source"] for item in search["results"]} & {"local_upload", "public"}
+    assert {item["source"] for item in search["results"]} == {"local_upload"}

@@ -1,0 +1,24 @@
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      DATAFORGE_PERSISTENCE: "sqlite"
+      DATAFORGE_DB_PATH: "/data/dataforge.db"
+      DATAFORGE_API_KEYS: "${DATAFORGE_API_KEYS:-}"
+      DATAFORGE_CORS_ORIGINS: "${DATAFORGE_CORS_ORIGINS:-http://localhost:5173}"
+      DATAFORGE_MAX_BODY_BYTES: "${DATAFORGE_MAX_BODY_BYTES:-10485760}"
+      DATAFORGE_RATE_CAPACITY: "${DATAFORGE_RATE_CAPACITY:-60}"
+      DATAFORGE_RATE_REFILL: "${DATAFORGE_RATE_REFILL:-1.0}"
+      DATAFORGE_LIVE_LLM: "${DATAFORGE_LIVE_LLM:-false}"
+      DATAFORGE_LLM_BASE_URL: "${DATAFORGE_LLM_BASE_URL:-}"
+      DATAFORGE_LLM_API_KEY: "${DATAFORGE_LLM_API_KEY:-}"
+      DATAFORGE_DISCOVERY_LIVE: "${DATAFORGE_DISCOVERY_LIVE:-false}"
+    volumes:
+      - dataforge-data:/data
+    restart: unless-stopped
+volumes:
+  dataforge-data:

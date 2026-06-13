@@ -97,12 +97,17 @@ class DiscoveryAgent(DeterministicAgent):
     def run(self, task_id: str, correlation_id: str, payload: Any) -> AgentMessage:
         """Return ranked existing dataset candidates for the requested domain."""
         requirement = payload["state"].get("structured_requirement", {})
-        candidates = DiscoveryService().search(requirement)
+        query = str(requirement.get("raw_request") or requirement.get("domain") or "")
+        discovery_payload = DiscoveryService().search(query)
+        candidates = discovery_payload.get("results", [])
         return self._message(
             task_id,
             correlation_id,
             MessageStatus.PASS,
-            {"candidate_datasets": candidates},
+            {
+                "candidate_datasets": candidates,
+                "discovery_status": discovery_payload,
+            },
             0.86,
             "Existing datasets were searched before considering generation.",
         )

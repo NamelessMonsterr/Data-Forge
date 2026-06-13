@@ -58,10 +58,13 @@ def get_settings() -> AppSettings:
         for provider in os.getenv("DATAFORGE_LLM_PROVIDERS", "nim,gemini,openai,ollama").split(",")
         if provider.strip()
     )
+    discovery_live = os.getenv(
+        "DATAFORGE_DISCOVERY_LIVE",
+        os.getenv("DATAFORGE_LIVE_DISCOVERY", ""),
+    )
     return AppSettings(
         discovery=DiscoverySettings(
-            live_enabled=os.getenv("DATAFORGE_LIVE_DISCOVERY", "").lower()
-            in {"1", "true", "yes"},
+            live_enabled=discovery_live.lower() in {"1", "true", "yes"},
             github_token=os.getenv("GITHUB_TOKEN"),
             web_search_endpoint=os.getenv("DATAFORGE_WEB_SEARCH_ENDPOINT"),
             timeout_seconds=float(os.getenv("DATAFORGE_DISCOVERY_TIMEOUT", "5")),
