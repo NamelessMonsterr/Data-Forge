@@ -1,4 +1,4 @@
-"""Dataset discovery against REAL provider APIs.
+"""Dataset discovery against REAL provider APIs, with tunable search intensity.
 
 Replaces the previous templated/synthesized discovery (which produced fabricated,
 sometimes malformed dataset URLs). Each provider parses the actual upstream JSON
@@ -6,6 +6,10 @@ and builds canonical URLs from real identifiers. Network access is gated behind
 ``DATAFORGE_DISCOVERY_LIVE=true``; when disabled the service returns an empty
 result with a clear note rather than inventing datasets. The HTTP client is
 injectable so providers are contract-tested without network or secrets.
+
+Search intensity controls how much real provider work is attempted. Higher
+levels consult more providers and request more candidates per provider; it never
+fabricates fallback results.
 """
 
 from __future__ import annotations
@@ -21,6 +25,23 @@ from typing import Any, Protocol
 
 class DiscoveryError(Exception):
     pass
+
+
+INTENSITY_ORDER = ("easy", "medium", "hard", "very_hard", "intense")
+DEFAULT_INTENSITY = "medium"
+INTENSITY_PROFILES: dict[str, dict[str, Any]] = {
+    "easy": {"limit": 5, "providers": 1, "label": "Easy"},
+    "medium": {"limit": 12, "providers": 2, "label": "Medium"},
+    "hard": {"limit": 25, "providers": 3, "label": "Hard"},
+    "very_hard": {"limit": 50, "providers": 3, "label": "Very Hard"},
+    "intense": {"limit": 100, "providers": 3, "label": "Intense"},
+}
+
+
+def resolve_intensity(name: str | None) -> str:
+    """Normalize a user-supplied intensity to a known key."""
+    key = (name or "").strip().lower().replace(" ", "_").replace("-", "_")
+    return key if key in INTENSITY_PROFILES else DEFAULT_INTENSITY
 
 
 @dataclass(frozen=True)
@@ -190,20 +211,34 @@ class DiscoveryService:
             KaggleProvider(env=env),
         ]
 
-    def search(self, query: str, limit: int = 10) -> dict[str, Any]:
+    def search(
+        self,
+        query: str,
+        intensity: str = DEFAULT_INTENSITY,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        level = resolve_intensity(intensity)
+        profile = INTENSITY_PROFILES[level]
+        per_provider = int(limit) if limit is not None else int(profile["limit"])
+        active_providers = self.providers[: int(profile["providers"])]
+
         if not self.live:
             return {
                 "enabled": False,
                 "query": query,
+                "intensity": level,
+                "intensity_label": profile["label"],
                 "results": [],
                 "note": "Discovery disabled. Set DATAFORGE_DISCOVERY_LIVE=true to enable real provider search.",
             }
         results: list[DatasetRef] = []
         errors: list[str] = []
         seen: set[str] = set()
-        for provider in self.providers:
+        providers_used: list[str] = []
+        for provider in active_providers:
+            providers_used.append(provider.name)
             try:
-                for ref in provider.search(query, limit):
+                for ref in provider.search(query, per_provider):
                     if ref.url in seen:
                         continue
                     seen.add(ref.url)
@@ -211,7 +246,16 @@ class DiscoveryService:
             except DiscoveryError as exc:
                 errors.append(f"{provider.name}: {exc}")
         results.sort(key=lambda r: r.downloads, reverse=True)
-        return {"enabled": True, "query": query, "results": [r.to_dict() for r in results], "errors": errors}
+        return {
+            "enabled": True,
+            "query": query,
+            "intensity": level,
+            "intensity_label": profile["label"],
+            "limit_per_provider": per_provider,
+            "providers_used": providers_used,
+            "results": [r.to_dict() for r in results],
+            "errors": errors,
+        }
 
     def provider_status(self) -> dict[str, Any]:
         """Return configured provider state for API/status surfaces."""

@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DataForge - Forge</title>
+    <meta name="description" content="Upload raw data and forge it into a normalized, scored, packaged dataset." />
+    <meta name="dataforge-api-base" content="http://127.0.0.1:8000" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body data-page="forge">
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="index.html" aria-label="DataForge home">
+          <span class="brand-mark" aria-hidden="true">DF</span><span>DataForge</span>
+        </a>
+        <nav class="nav" aria-label="Primary">
+          <a href="index.html">Discover</a>
+          <a href="forge.html" aria-current="page">Forge</a>
+          <a href="catalog.html">Catalog</a>
+        </nav>
+        <button class="provider" id="providerStatus" data-mode="offline" type="button">AI - Offline</button>
+      </header>
+
+      <main>
+        <section class="page-head">
+          <span class="eyebrow">Ingest -> normalize -> score -> package</span>
+          <h1>Forge raw data into an <em>AI-ready</em> artifact.</h1>
+          <p>Drop a CSV, JSON, or JSONL file. DataForge infers the schema, normalizes the rows, computes real quality metrics, and packages a checksummed, reproducible ZIP - then indexes it in your catalog.</p>
+        </section>
+
+        <div class="split">
+          <form class="panel" id="uploadForm">
+            <label class="dropzone" id="dropZone" for="datasetFile">
+              <h3>Drop your dataset here</h3>
+              <p id="dropHint">CSV - JSON - JSONL - or click to browse</p>
+              <input id="datasetFile" type="file" accept=".csv,.json,.jsonl,.txt" />
+            </label>
+            <div class="field">
+              <label for="uploadRequest">What should the forge focus on? (optional)</label>
+              <textarea id="uploadRequest" placeholder="e.g. Clean for an NLP fine-tune; flag PII columns."></textarea>
+            </div>
+            <button class="button primary" type="submit" id="processBtn">Forge dataset</button>
+            <div class="stepper" id="uploadStepper">
+              <div>Upload</div><div>Ingest</div><div>Normalize</div><div>Score</div><div>Package</div><div>Index</div>
+            </div>
+          </form>
+          <aside class="panel" id="uploadResult">
+            <div class="empty-state"><h3>No dataset forged yet</h3><p>Upload a file to see rows, columns, quality, and a downloadable ZIP.</p></div>
+          </aside>
+        </div>
+      </main>
+
+      <footer class="foot">
+        <span>DataForge - Forge</span>
+        <span>Deterministic - checksummed - reproducible</span>
+      </footer>
+    </div>
+
+    <div class="toast" id="toast" role="status"></div>
+    <script src="config.js"></script>
+    <script src="api-client.js"></script>
+    <script src="app.js" defer></script>
+  </body>
+</html>

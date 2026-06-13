@@ -292,10 +292,11 @@ class UnifiedDatasetSearchService:
         *,
         include_public: bool = False,
         limit: int = 10,
+        intensity: str = "medium",
     ) -> dict[str, Any]:
         """Return merged local and public dataset results."""
         local = self.catalog.search(query, limit=limit)
-        public = self._public_results(query, limit) if include_public else []
+        public = self._public_results(query, limit, intensity) if include_public else []
         merged = sorted(
             [*local, *public],
             key=lambda item: item.get("relevance_score", item.get("discovery_score", 0.0)),
@@ -304,6 +305,7 @@ class UnifiedDatasetSearchService:
         return {
             "query": query,
             "include_public": include_public,
+            "intensity": intensity,
             "results": merged,
             "counts": {
                 "local": len(local),
@@ -312,8 +314,8 @@ class UnifiedDatasetSearchService:
             },
         }
 
-    def _public_results(self, query: str, limit: int) -> list[dict[str, Any]]:
-        discovery_payload = self.discovery.search(query, limit=limit)
+    def _public_results(self, query: str, limit: int, intensity: str) -> list[dict[str, Any]]:
+        discovery_payload = self.discovery.search(query, intensity=intensity, limit=limit)
         candidates = discovery_payload.get("results", [])[:limit]
         results = []
         for candidate in candidates:

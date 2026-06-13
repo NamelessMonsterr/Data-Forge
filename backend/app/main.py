@@ -119,19 +119,25 @@ def list_workflows() -> dict:
     }
 
 
-@app.post("/discovery/search")
-def discovery_search(payload: dict) -> dict:
+def _discovery_response(payload: dict, query_override: str | None = None) -> dict:
     """Search dataset providers and return ranked candidates without ingestion."""
     planner = RuleBasedPlanner()
     plan = planner.plan(payload)
     service = DiscoveryService()
     query = str(
-        plan.structured_requirement.get("raw_request")
+        query_override
+        or plan.structured_requirement.get("raw_request")
         or plan.structured_requirement.get("domain")
+        or payload.get("query")
         or payload.get("request")
         or ""
     )
-    discovery_payload = service.search(query, limit=int(payload.get("limit", 10)))
+    intensity = str(payload.get("intensity") or payload.get("search_intensity") or "medium")
+    discovery_payload = service.search(
+        query,
+        intensity=intensity,
+        limit=int(payload.get("limit", 10)),
+    )
     candidates = discovery_payload.get("results", [])
     return {
         "structured_requirement": plan.structured_requirement,
@@ -145,6 +151,21 @@ def discovery_search(payload: dict) -> dict:
         "provider_status": service.provider_status(),
         "discovery": discovery_payload,
     }
+
+
+@app.post("/discovery/search")
+def discovery_search(payload: dict) -> dict:
+    """Search dataset providers and return ranked candidates without ingestion."""
+    return _discovery_response(payload)
+
+
+@app.get("/discovery/search")
+def discovery_search_get(q: str = "", intensity: str = "medium", limit: int = 10) -> dict:
+    """GET variant used by static frontends and smoke tests."""
+    return _discovery_response(
+        {"request": q, "query": q, "intensity": intensity, "limit": limit},
+        query_override=q,
+    )
 
 
 @app.get("/discovery/providers")
@@ -210,6 +231,7 @@ def search_datasets(payload: dict) -> dict:
         query=str(payload.get("query", "")),
         include_public=bool(payload.get("include_public", False)),
         limit=int(payload.get("limit", 10)),
+        intensity=str(payload.get("intensity") or payload.get("search_intensity") or "medium"),
     )
 
 

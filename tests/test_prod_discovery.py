@@ -11,6 +11,7 @@ from backend.services.discovery import (  # noqa: E402
     DiscoveryService,
     HuggingFaceProvider,
     KaggleProvider,
+    resolve_intensity,
 )
 
 
@@ -23,6 +24,20 @@ class FakeClient:
     def get(self, url, headers, timeout):
         self.last_url = url
         return self.status, self.body
+
+
+class RecordingProvider:
+    """Test double that records the limit it was asked to fetch."""
+
+    name = "rec"
+    source = "rec"
+
+    def __init__(self):
+        self.calls = []
+
+    def search(self, query, limit=10):
+        self.calls.append(limit)
+        return []
 
 
 HF_BODY = json.dumps([
@@ -113,6 +128,53 @@ class DiscoveryServiceTest(unittest.TestCase):
         out = svc.search("x")
         self.assertEqual(len(out["results"]), 2)
         self.assertEqual(len(out["errors"]), 1)
+
+
+class IntensityTest(unittest.TestCase):
+    def _live_service(self, n_providers):
+        provs = [HuggingFaceProvider(client=FakeClient(200, HF_BODY)) for _ in range(n_providers)]
+        return DiscoveryService(providers=provs, env={"DATAFORGE_DISCOVERY_LIVE": "true"})
+
+    def test_resolve_normalizes_and_defaults(self):
+        self.assertEqual(resolve_intensity("bogus"), "medium")
+        self.assertEqual(resolve_intensity(None), "medium")
+        self.assertEqual(resolve_intensity(""), "medium")
+        self.assertEqual(resolve_intensity("Very Hard"), "very_hard")
+        self.assertEqual(resolve_intensity("very-hard"), "very_hard")
+        self.assertEqual(resolve_intensity("INTENSE"), "intense")
+
+    def test_easy_consults_one_provider_small_limit(self):
+        out = self._live_service(3).search("x", intensity="easy")
+        self.assertEqual(out["intensity"], "easy")
+        self.assertEqual(out["intensity_label"], "Easy")
+        self.assertEqual(len(out["providers_used"]), 1)
+        self.assertEqual(out["limit_per_provider"], 5)
+
+    def test_intense_consults_all_providers_large_limit(self):
+        out = self._live_service(3).search("x", intensity="intense")
+        self.assertEqual(len(out["providers_used"]), 3)
+        self.assertEqual(out["limit_per_provider"], 100)
+
+    def test_explicit_limit_overrides_profile(self):
+        out = self._live_service(2).search("x", intensity="hard", limit=7)
+        self.assertEqual(out["limit_per_provider"], 7)
+
+    def test_profile_limit_is_passed_to_provider(self):
+        rec = RecordingProvider()
+        svc = DiscoveryService(providers=[rec, rec, rec], env={"DATAFORGE_DISCOVERY_LIVE": "true"})
+        svc.search("x", intensity="medium")
+        self.assertEqual(rec.calls[0], 12)
+
+    def test_unknown_intensity_falls_back_to_medium(self):
+        out = self._live_service(3).search("x", intensity="turbo")
+        self.assertEqual(out["intensity"], "medium")
+        self.assertEqual(len(out["providers_used"]), 2)
+
+    def test_disabled_still_reports_intensity(self):
+        svc = DiscoveryService(providers=[HuggingFaceProvider(client=FakeClient(200, HF_BODY))], env={})
+        out = svc.search("x", intensity="hard")
+        self.assertFalse(out["enabled"])
+        self.assertEqual(out["intensity"], "hard")
 
 
 if __name__ == "__main__":

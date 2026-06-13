@@ -1,5 +1,7 @@
 // Resilient API client: timeout, bounded retry with backoff, typed errors,
 // API-key header, and helpers the UI uses to render loading/empty/error states.
+// Search + discovery accept a `intensity` (easy|medium|hard|very_hard|intense)
+// that tells the backend how hard to work.
 (function (global) {
   var cfg = global.DataForgeConfig || { apiBase: "/api", requestTimeoutMs: 30000, maxRetries: 2 };
 
@@ -50,7 +52,7 @@
         var text = await resp.text();
         var data = text ? JSON.parse(text) : null;
         if (!resp.ok) {
-          throw new ApiError((data && data.error) || "Request failed", resp.status, text);
+          throw new ApiError((data && (data.detail || data.error)) || "Request failed", resp.status, text);
         }
         return data;
       } catch (err) {
@@ -68,14 +70,18 @@
   global.DataForgeApi = {
     ApiError: ApiError,
     health: function () { return request("/health"); },
-    searchDatasets: function (q, options) {
-      options = options || {};
+    ready: function () { return request("/ready"); },
+    llmStatus: function () { return request("/ai/llm/status"); },
+    // POST /datasets/search { query, include_public, limit, intensity }
+    searchDatasets: function (query, opts) {
+      opts = (opts && typeof opts === "object") ? opts : {};
       return request("/datasets/search", {
         method: "POST",
         body: {
-          query: q || "",
-          include_public: Boolean(options.includePublic),
-          limit: options.limit || 10,
+          query: query || "",
+          include_public: opts.includePublic !== false,
+          limit: opts.limit || 12,
+          intensity: opts.intensity || "medium",
         },
       });
     },
@@ -83,11 +89,12 @@
       return request("/datasets/process", { method: "POST", body: payload });
     },
     catalog: function () { return request("/datasets/catalog"); },
-    discovery: function (q) {
-      return request("/discovery/search", {
-        method: "POST",
-        body: { request: q || "" },
-      });
+    // GET /discovery/search?q=&intensity=
+    discovery: function (query, opts) {
+      opts = (opts && typeof opts === "object") ? opts : {};
+      var qs = "?q=" + encodeURIComponent(query || "") +
+               "&intensity=" + encodeURIComponent(opts.intensity || "medium");
+      return request("/discovery/search" + qs);
     },
   };
 })(window);

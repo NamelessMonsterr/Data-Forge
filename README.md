@@ -192,11 +192,11 @@ curl -s localhost:8000/ready    | jq
 
 <table>
 <tr><th align="left">Method · Route</th><th align="left">Description</th></tr>
-<tr><td><code>POST&nbsp;/datasets/search</code></td><td>Search the local catalog</td></tr>
+<tr><td><code>POST&nbsp;/datasets/search</code></td><td>Search the local catalog with optional public discovery + intensity</td></tr>
 <tr><td><code>POST&nbsp;/datasets/process</code></td><td>Ingest → normalize → score → package</td></tr>
 <tr><td><code>GET&nbsp;&nbsp;/datasets/catalog</code></td><td>Browse processed datasets (paginated)</td></tr>
 <tr><td><code>POST&nbsp;/datasets/ingest</code></td><td>Bring raw data into the forge</td></tr>
-<tr><td><code>GET&nbsp;&nbsp;/discovery/search</code></td><td>Real provider-gated dataset discovery</td></tr>
+<tr><td><code>GET&nbsp;&nbsp;/discovery/search</code></td><td>Real provider-gated dataset discovery with Easy/Medium/Hard/Very Hard/Intense effort</td></tr>
 <tr><td><code>POST&nbsp;/workflow/start</code></td><td>Kick off the generator ⇄ critic agent loop</td></tr>
 <tr><td><code>GET&nbsp;&nbsp;/ai/llm/status</code> · <code>/router/status</code></td><td>Live model + routing health</td></tr>
 <tr><td><code>GET&nbsp;&nbsp;/artifacts/{task_id}/dataset.zip</code></td><td>Download the packaged artifact</td></tr>
@@ -218,7 +218,7 @@ curl -s localhost:8000/ready    | jq
 | Discovery | 🟢 | Real provider APIs, clean URLs, **zero fabrication** by default |
 | Agents | 🟢 | Generator/Critic invoke the model; only real agents exposed |
 | Observability | 🟢 | Structured JSON logs, request IDs, metrics incl. provider fallback rate |
-| Frontend | 🟢 | Env-driven API base, retry/error/empty states |
+| Frontend | 🟢 | Three-page Discover / Forge / Catalog UI with env-driven API base, retry/error/empty states |
 | CI/CD | 🟢 | Lint → compile → test → Docker build; `/health` + `/ready` gating |
 
 </div>
@@ -233,7 +233,7 @@ Data-Forge/
 │   ├── app/          # security · observability · health · pagination · main
 │   ├── core/         # repository (SQLite + WAL, migrations)
 │   └── services/     # discovery · llm_provider · quality · agents
-├── frontend/         # config.js · api-client.js  (env base, retry/backoff)
+├── frontend/         # Discover / Forge / Catalog static UI + API client
 ├── deploy/           # Dockerfile · docker-compose.yml
 ├── tests/            # 139 tests · stdlib unittest + contract mocks
 ├── .github/workflows # CI: lint · compile · test · docker build
@@ -246,7 +246,7 @@ Data-Forge/
 ## ◆ Testing
 
 ```bash
-python -m pytest -q          # → 139 passed
+python -m unittest discover tests -v  # -> 95 passed in this checkout
 python -m compileall backend tests
 ```
 

@@ -3,123 +3,75 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>DataForge · Discover datasets</title>
-    <meta name="description" content="Search and inspect datasets with DataForge." />
+    <title>DataForge - Discover</title>
+    <meta name="description" content="Discover datasets across real providers with tunable search intensity." />
+    <!-- Point the frontend at your API (defaults to same-origin /api). -->
+    <meta name="dataforge-api-base" content="http://127.0.0.1:8000" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body data-page="discover">
     <div class="app-shell">
       <header class="topbar">
         <a class="brand" href="index.html" aria-label="DataForge home">
-          <span class="brand-mark" aria-hidden="true">DF</span>
-          <span>DataForge</span>
+          <span class="brand-mark" aria-hidden="true">DF</span><span>DataForge</span>
         </a>
-        <nav class="nav" aria-label="Primary navigation">
-          <a href="index.html" data-nav="discover">Discover</a>
-          <a href="upload.html" data-nav="upload">Upload</a>
-          <a href="catalog.html" data-nav="catalog">Catalog</a>
+        <nav class="nav" aria-label="Primary">
+          <a href="index.html" aria-current="page">Discover</a>
+          <a href="forge.html">Forge</a>
+          <a href="catalog.html">Catalog</a>
         </nav>
-        <button class="provider" id="providerStatus" data-mode="offline" type="button" title="LLM provider status">AI Status · Offline Mode</button>
+        <button class="provider" id="providerStatus" data-mode="offline" type="button">AI - Offline</button>
       </header>
 
       <main>
-        <section class="hero">
-          <div class="hero-copy">
-            <span class="eyebrow">Dataset discovery engine</span>
-            <h1>Search, inspect, and <em>package</em> datasets.</h1>
-            <p>
-              Use natural-language search across the local catalog and optional public providers.
-              Tune search intensity from Easy to Intense, inspect quality and schema, then move
-              to upload or catalog workflows when needed.
-            </p>
-            <form class="cmdbar" id="heroSearchForm">
-              <label class="sr-only" for="heroQuery">Search datasets</label>
-              <input id="heroQuery" name="query" type="search" placeholder="e.g. healthcare datasets with patient demographics" autocomplete="off" />
-              <button type="submit">Search</button>
-            </form>
-            <div class="prompt-examples" aria-label="Example dataset searches">
-              <span>Try</span>
-              <button type="button" data-prompt="Find datasets for diabetes prediction">Diabetes prediction</button>
-              <button type="button" data-prompt="Climate datasets for rainfall forecasting">Rainfall forecasting</button>
-              <button type="button" data-prompt="Customer churn datasets">Customer churn</button>
-              <button type="button" data-prompt="Indian traffic accident datasets">Traffic accidents</button>
-            </div>
-            <div class="hero-actions">
-              <a class="button secondary" href="upload.html">Upload a dataset</a>
-              <a class="button ghost" href="catalog.html">View catalog</a>
-            </div>
-            <div class="feature-strip" aria-label="DataForge capabilities">
-              <div>Natural-language search</div>
-              <div>Search intensity control</div>
-              <div>Difficulty scoring</div>
-              <div>Quality-aware ranking</div>
-            </div>
-          </div>
-          <aside class="status-card" aria-label="System status">
-            <div class="status-head"><span class="dot"></span> System status</div>
-            <ul>
-              <li><span>LLM mode</span><b class="warn" id="heroLlmMode">Offline · deterministic</b></li>
-              <li><span>Search</span><b class="ok">Local semantic</b></li>
-              <li><span>Public discovery</span><b>Opt-in live providers</b></li>
-              <li><span>Quality</span><b>Computed metrics</b></li>
-              <li><span>Artifacts</span><b>SHA-256 + ZIP</b></li>
-            </ul>
-            <div class="status-foot">
-              Live NVIDIA NIM is enabled with <code>DATAFORGE_LIVE_LLM=true</code> and credentials.
-            </div>
-          </aside>
+        <section class="page-head">
+          <span class="eyebrow">Dataset discovery engine</span>
+          <h1>Find the <em>right</em> dataset - at the depth you choose.</h1>
+          <p>Search across real providers (HuggingFace, Kaggle, data.gov). Dial up the search intensity to make the engine work harder and cast a wider net - it costs more time but never invents results.</p>
         </section>
 
-        <section class="workspace" id="search">
-          <div class="section-heading">
-            <div>
-              <h2>Search results</h2>
-              <p id="resultContext">Search for datasets or open the catalog page.</p>
-            </div>
-            <form class="toolbar-search" id="searchForm">
-              <label class="sr-only" for="searchQuery">Search query</label>
-              <input id="searchQuery" name="query" type="search" placeholder="Customer churn datasets" autocomplete="off" />
-              <label class="field compact">
-                <span>Intensity</span>
-                <select id="searchIntensity">
-                  <option value="easy">Easy</option>
-                  <option value="medium" selected>Medium</option>
-                  <option value="hard">Hard</option>
-                  <option value="very_hard">Very hard</option>
-                  <option value="intense">Intense</option>
-                </select>
-              </label>
-              <label class="toggle">
-                <input id="includePublic" type="checkbox" checked />
-                <span>Public</span>
-              </label>
-              <button type="submit">Run search</button>
-            </form>
+        <form class="cmdbar" id="searchForm">
+          <label class="sr-only" for="searchQuery">Search datasets</label>
+          <input id="searchQuery" type="search" placeholder="e.g. healthcare datasets with patient demographics" autocomplete="off" />
+          <button class="button primary" type="submit">Search</button>
+        </form>
+
+        <section class="intensity" aria-label="Search intensity">
+          <div class="intensity-label">Search intensity - <b id="intensityName">Medium</b></div>
+          <div class="intensity-track" id="intensityTrack" role="group" aria-label="Choose search intensity">
+            <button type="button" class="intensity-step" data-level="easy" aria-pressed="false"><span class="dots"><i></i></span>Easy</button>
+            <button type="button" class="intensity-step" data-level="medium" aria-pressed="true"><span class="dots"><i></i><i></i></span>Medium</button>
+            <button type="button" class="intensity-step" data-level="hard" aria-pressed="false"><span class="dots"><i></i><i></i><i></i></span>Hard</button>
+            <button type="button" class="intensity-step" data-level="very_hard" aria-pressed="false"><span class="dots"><i></i><i></i><i></i><i></i></span>Very Hard</button>
+            <button type="button" class="intensity-step" data-level="intense" aria-pressed="false"><span class="dots"><i></i><i></i><i></i><i></i><i></i></span>Intense</button>
           </div>
-          <div class="status-line" id="searchStatus">No search run yet.</div>
-          <div class="results-layout">
-            <aside class="filter-rail" aria-label="Search filters">
-              <button class="filter active" data-filter="all" type="button">All sources</button>
-              <button class="filter" data-filter="local_upload" type="button">Local</button>
-              <button class="filter" data-filter="public" type="button">Public</button>
-              <button class="filter" data-filter="huggingface" type="button">Hugging Face</button>
-              <button class="filter" data-filter="github" type="button">GitHub</button>
-              <button class="filter" data-filter="data.gov" type="button">Data.gov</button>
-            </aside>
-            <div class="results-list" id="resultsList"></div>
-            <aside class="details-pane" id="detailsPane">
-              <div class="empty-state">
-                <h3>Select a dataset</h3>
-                <p>Open a result to inspect summary, schema, quality, and artifacts.</p>
-              </div>
-            </aside>
-          </div>
+          <p class="intensity-hint" id="intensityHint"></p>
+        </section>
+
+        <div class="chips" id="promptChips">
+          <button class="chip" data-prompt="healthcare datasets with patient demographics">healthcare demographics</button>
+          <button class="chip" data-prompt="climate and weather time series">climate time series</button>
+          <button class="chip" data-prompt="financial fraud detection">fraud detection</button>
+          <button class="chip" data-prompt="image classification benchmark">image benchmark</button>
+        </div>
+
+        <p class="status-line" id="statusLine"></p>
+
+        <section class="split">
+          <div class="results" id="resultsList"></div>
+          <aside class="panel detail" id="detailsPane"></aside>
         </section>
       </main>
+
+      <footer class="foot">
+        <span>DataForge - Discover</span>
+        <span>Real providers - zero fabrication</span>
+      </footer>
     </div>
-    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <div class="toast" id="toast" role="status"></div>
     <script src="config.js"></script>
     <script src="api-client.js"></script>
-    <script src="app.js"></script>
+    <script src="app.js" defer></script>
   </body>
 </html>
