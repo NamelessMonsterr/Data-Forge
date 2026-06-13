@@ -10,6 +10,17 @@ Show DataForge as an AI-powered dataset discovery platform:
 4. Process, index, and search it.
 5. Download ready-to-use artifacts.
 
+## Honest Demo Framing
+
+The UI demo focuses on the real upload path: ingestion, normalization, schema
+inference, missing/duplicate statistics, catalog indexing, AI-style summaries,
+semantic ranking, artifact generation, and ZIP download.
+
+The 17-agent `/workflow/start` path is a deterministic reference workflow for
+showing planner, graph validation, confidence-protocol messages, and service
+boundaries. It is reproducible by design and should be described as a reference
+orchestration path, not as live autonomous data transformation.
+
 ## 3-Minute Script
 
 ### 0:00-0:30 - Problem
@@ -57,8 +68,8 @@ Show:
 Talk track:
 
 > The same platform can ingest user data, normalize it, infer schema, compute
-> quality signals, generate reports, create a manifest and checksums, and package
-> everything into a ZIP.
+> upload statistics and lightweight quality signals, generate reports, create a
+> manifest and checksums, and package everything into a ZIP.
 
 ### 2:20-3:00 - Search Uploaded Data + NVIDIA Story
 
@@ -120,6 +131,7 @@ $env:NVIDIA_API_KEY="<your-nvidia-api-key>"
 $env:NVIDIA_NIM_BASE_URL="https://integrate.api.nvidia.com/v1"
 $env:NVIDIA_NIM_MODEL="meta/llama-3.1-70b-instruct"
 $env:DATAFORGE_LLM_PROVIDERS="nim,gemini,openai,ollama"
+$env:DATAFORGE_LIVE_LLM="true"
 ```
 
 Without credentials, the deterministic local provider keeps the demo reliable.
@@ -128,7 +140,8 @@ Without credentials, the deterministic local provider keeps the demo reliable.
 
 - Backend health returns `200`.
 - Frontend loads at `http://127.0.0.1:5173`.
-- `/ai/llm/status` shows NIM first.
+- `/ai/llm/status` shows `local-deterministic` by default, or `nim` only when
+  live LLM mode and NVIDIA credentials are configured.
 - Search returns at least one result.
 - Upload sample CSV completes.
 - ZIP download link works.
@@ -148,3 +161,24 @@ If NVIDIA API is unavailable:
 1. Show `/ai/llm/status`.
 2. Explain provider fallback.
 3. Continue with deterministic local mode.
+
+## Showing The Agent Workflow
+
+If a judge asks where the agents are, run:
+
+```powershell
+curl -X POST http://127.0.0.1:8000/workflow/start `
+  -H "Content-Type: application/json" `
+  -d "{\"request\":\"I need a Hindi-English instruction dataset for healthcare.\"}"
+```
+
+Point to:
+
+- `planner_confidence`
+- `planner_mutations`
+- `planner_alternatives`
+- `messages[*].agent`
+- `messages[*].confidence`
+- `messages[*].next_action`
+
+Use this as evidence of orchestration transparency, not as the main user demo path.

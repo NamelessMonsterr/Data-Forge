@@ -24,6 +24,10 @@ Best live path:
 
 See [Demo Runbook](docs/DEMO_RUNBOOK.md) for the 3-minute script, fallback plan, and sample prompts.
 
+Demo scope note: the frontend showcases the real upload/search/artifact path.
+The 17-agent `/workflow/start` endpoint is a deterministic reference workflow for
+planner, graph validation, confidence-protocol messages, and architecture review.
+
 ## Architecture Diagram
 
 ![DataForge AI architecture](docs/architecture.svg)
@@ -137,7 +141,7 @@ generated ZIP artifacts.
 
 ## Executable Product Slice
 
-The backend now runs a deterministic end-to-end product slice:
+The backend also exposes a deterministic end-to-end orchestration slice:
 
 ```
 Request -> RuleBasedPlanner -> Workflow Library -> Graph Validator
