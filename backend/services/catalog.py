@@ -9,6 +9,7 @@ from uuid import uuid4
 from backend.core.repository import DatasetCatalogRecord, JsonRepository, utc_now
 from backend.services.ai_skills import (
     DataCardSkill,
+    DatasetGapAnalysisSkill,
     DatasetRecommendationSkill,
     DatasetSummarySkill,
 )
@@ -160,6 +161,7 @@ class DatasetCatalogService:
         payload["semantic_relevance"] = round(semantic_score, 4)
         payload["lexical_relevance"] = round(lexical_score, 4)
         payload["recommendation"] = self._recommendation(record, query_tokens & searchable, query_tokens)
+        payload["gap_analysis"] = self._gap_analysis(record, query_tokens)
         return payload
 
     def _record_to_dict(self, record: DatasetCatalogRecord) -> dict[str, Any]:
@@ -225,6 +227,41 @@ class DatasetCatalogService:
                 "matched_terms": sorted(matched_tokens),
                 "quality_score": record.quality_score,
                 "rows": record.rows,
+            },
+            self.orchestrator,
+        )
+        return result.text
+
+    _TUNING_TERMS = {
+        "instruction",
+        "instructions",
+        "instruct",
+        "chat",
+        "sft",
+        "finetune",
+        "fine",
+        "tuning",
+    }
+
+    def _gap_analysis(
+        self,
+        record: DatasetCatalogRecord,
+        query_tokens: set[str],
+    ) -> str:
+        query = " ".join(sorted(query_tokens))
+        requirement: dict[str, Any] = {"domain": query or "the search"}
+        if query_tokens & self._TUNING_TERMS:
+            requirement["target_model"] = "instruction-tuned"
+        result = DatasetGapAnalysisSkill().run(
+            {
+                "rows": record.rows,
+                "schema": record.schema,
+                "languages": [
+                    tag
+                    for tag in record.tags
+                    if tag in {"english", "spanish", "hindi", "french", "german"}
+                ],
+                "requirement": requirement,
             },
             self.orchestrator,
         )

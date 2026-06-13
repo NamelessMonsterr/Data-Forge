@@ -243,10 +243,7 @@ function renderTab(item) {
         <h4>Recommendation</h4>
         <p>${escapeHtml(item.recommendation || "Search this dataset to generate a recommendation.")}</p>
       </div>
-      <div class="detail-section">
-        <h4>Suggested use</h4>
-        <p>Best for discovery, exploratory analysis, model prototyping, and dataset packaging.</p>
-      </div>
+      ${item.gap_analysis ? `<div class="detail-section"><h4>What's missing / next best action</h4><p>${escapeHtml(item.gap_analysis)}</p></div>` : ""}
     `;
   }
   return `
