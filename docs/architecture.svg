@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="720" viewBox="0 0 1180 720" role="img" aria-labelledby="title desc">
+  <title id="title">DataForge AI architecture</title>
+  <desc id="desc">Architecture diagram showing frontend, API, planner, execution agents, services, catalog, AI skills, and artifacts.</desc>
+  <defs>
+    <style>
+      .bg { fill: #0b1020; }
+      .panel { fill: #141b2d; stroke: #2d3a52; stroke-width: 2; rx: 18; }
+      .service { fill: #17243b; stroke: #3b82f6; stroke-width: 2; rx: 14; }
+      .agent { fill: #18251f; stroke: #76b900; stroke-width: 2; rx: 14; }
+      .artifact { fill: #221c12; stroke: #f59e0b; stroke-width: 2; rx: 14; }
+      .text { fill: #ffffff; font-family: Inter, Segoe UI, Arial, sans-serif; font-size: 22px; font-weight: 700; }
+      .small { fill: #aab6c7; font-family: Inter, Segoe UI, Arial, sans-serif; font-size: 16px; }
+      .tiny { fill: #aab6c7; font-family: Inter, Segoe UI, Arial, sans-serif; font-size: 14px; }
+      .arrow { stroke: #76b900; stroke-width: 3; marker-end: url(#arrow); fill: none; }
+    </style>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#76b900"/>
+    </marker>
+  </defs>
+  <rect class="bg" width="1180" height="720"/>
+  <text x="50" y="58" class="text" font-size="30">DataForge AI</text>
+  <text x="50" y="86" class="small">Search-first autonomous dataset discovery, processing, and export</text>
+
+  <rect x="50" y="125" width="250" height="120" class="panel"/>
+  <text x="78" y="165" class="text">Frontend</text>
+  <text x="78" y="194" class="small">Search, upload, catalog</text>
+  <text x="78" y="220" class="small">Dataset details + ZIP</text>
+
+  <rect x="380" y="125" width="250" height="120" class="service"/>
+  <text x="408" y="165" class="text">FastAPI</text>
+  <text x="408" y="194" class="small">/datasets/search</text>
+  <text x="408" y="220" class="small">/datasets/process</text>
+
+  <rect x="710" y="125" width="420" height="120" class="service"/>
+  <text x="738" y="165" class="text">Planner + Graph Validator</text>
+  <text x="738" y="194" class="small">Workflow library, legal mutations, hard validation</text>
+  <text x="738" y="220" class="small">Planner stays outside the agent registry</text>
+
+  <rect x="50" y="315" width="250" height="130" class="service"/>
+  <text x="78" y="356" class="text">Ingestion</text>
+  <text x="78" y="386" class="small">CSV, JSON, JSONL</text>
+  <text x="78" y="412" class="small">Schema + stats + checksum</text>
+
+  <rect x="380" y="315" width="250" height="130" class="agent"/>
+  <text x="408" y="356" class="text">17 Registry Agents</text>
+  <text x="408" y="386" class="small">Discovery, license, clean</text>
+  <text x="408" y="412" class="small">quality, benchmark, export</text>
+
+  <rect x="710" y="315" width="190" height="130" class="service"/>
+  <text x="738" y="356" class="text">AI Skills</text>
+  <text x="738" y="386" class="small">Summary</text>
+  <text x="738" y="412" class="small">Recommendation</text>
+
+  <rect x="940" y="315" width="190" height="130" class="service"/>
+  <text x="968" y="356" class="text">LLM Router</text>
+  <text x="968" y="386" class="small">NVIDIA first</text>
+  <text x="968" y="412" class="small">Retry + fallback</text>
+
+  <rect x="50" y="525" width="250" height="120" class="service"/>
+  <text x="78" y="565" class="text">Catalog</text>
+  <text x="78" y="594" class="small">Local uploads + public</text>
+  <text x="78" y="620" class="small">Semantic ranking</text>
+
+  <rect x="380" y="525" width="250" height="120" class="service"/>
+  <text x="408" y="565" class="text">Support Services</text>
+  <text x="408" y="594" class="small">Reports, manifest</text>
+  <text x="408" y="620" class="small">checksums, ZIP</text>
+
+  <rect x="710" y="525" width="420" height="120" class="artifact"/>
+  <text x="738" y="565" class="text">Artifacts</text>
+  <text x="738" y="594" class="small">dataset.jsonl, dataset_card, reports</text>
+  <text x="738" y="620" class="small">manifest.json, checksums, dataset.zip</text>
+
+  <path d="M300 185 H380" class="arrow"/>
+  <path d="M630 185 H710" class="arrow"/>
+  <path d="M505 245 V315" class="arrow"/>
+  <path d="M300 380 H380" class="arrow"/>
+  <path d="M630 380 H710" class="arrow"/>
+  <path d="M900 380 H940" class="arrow"/>
+  <path d="M505 445 V525" class="arrow"/>
+  <path d="M300 585 H380" class="arrow"/>
+  <path d="M630 585 H710" class="arrow"/>
+  <path d="M175 445 V525" class="arrow"/>
+</svg>

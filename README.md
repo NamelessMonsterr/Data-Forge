@@ -24,6 +24,10 @@ Best live path:
 
 See [Demo Runbook](docs/DEMO_RUNBOOK.md) for the 3-minute script, fallback plan, and sample prompts.
 
+## Architecture Diagram
+
+![DataForge AI architecture](docs/architecture.svg)
+
 ## Core Philosophy
 
 ```
@@ -118,6 +122,18 @@ The frontend calls the existing backend APIs:
 - `POST /datasets/process`
 - `GET /datasets/catalog`
 - `GET /ai/llm/status`
+
+## Submission Packaging
+
+For a clean hackathon ZIP, package the source without generated state, caches, or git
+history:
+
+```powershell
+Compress-Archive -Path backend,agents,planner,reports,router,tests,frontend,docs,demo_datasets,config,README.md,requirements.txt,DataForge_AI_Master_PRD_v1.0.pdf -DestinationPath DataForge_AI_Submission.zip -Force
+```
+
+Do not include `.git/`, `.pytest_cache/`, `__pycache__/`, `.pyc`, `tmp/`, `logs/`, or
+generated ZIP artifacts.
 
 ## Executable Product Slice
 
