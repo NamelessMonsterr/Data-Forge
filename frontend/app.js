@@ -110,7 +110,7 @@ function renderResultCard(item) {
         <span>${escapeHtml(sourceLabel(item))}</span>
         <span>${escapeHtml(item.rows || item.metadata?.rows || 0)} rows</span>
         <span>${escapeHtml(item.columns || "n/a")} columns</span>
-        <span>Quality ${escapeHtml(item.quality_score ?? "n/a")}</span>
+        <span>Heuristic quality ${escapeHtml(item.quality_score ?? "n/a")}</span>
         <span>Semantic ${escapeHtml(item.semantic_relevance ?? item.discovery_score ?? "n/a")}</span>
       </div>
       <div class="meta-row">${tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")}</div>
@@ -124,7 +124,7 @@ function renderDetails() {
     elements.detailsPane.innerHTML = `
       <div class="empty-state">
         <h3>Select a dataset</h3>
-        <p>Open a result to inspect summary, recommendation, schema, quality, and artifacts.</p>
+        <p>Open a result to inspect summary, recommendation, schema, heuristic quality, and artifacts.</p>
       </div>
     `;
     return;
@@ -170,11 +170,11 @@ function renderTab(item) {
   if (state.activeTab === "quality") {
     return `
       <div class="detail-section">
-        <h4>Quality</h4>
+        <h4>Heuristic Quality</h4>
         <div class="metric-grid">
           <div class="metric"><span>Missing Values</span><strong>${escapeHtml(item.stats?.missing_cells ?? "n/a")}</strong></div>
           <div class="metric"><span>Duplicates</span><strong>${escapeHtml(item.stats?.duplicate_rows ?? "n/a")}</strong></div>
-          <div class="metric"><span>Overall Quality</span><strong>${escapeHtml(item.quality_score ?? "n/a")}</strong></div>
+          <div class="metric"><span>Reference Score</span><strong>${escapeHtml(item.quality_score ?? "n/a")}</strong></div>
           <div class="metric"><span>Semantic Score</span><strong>${escapeHtml(item.semantic_relevance ?? "n/a")}</strong></div>
         </div>
       </div>
@@ -268,7 +268,7 @@ function renderCatalogGrid() {
         <p>${escapeHtml(item.ai_summary || item.description || "No summary available.")}</p>
         <div class="meta-row">
           <span>${escapeHtml(item.rows)} rows</span>
-          <span>Quality ${escapeHtml(item.quality_score ?? "n/a")}</span>
+          <span>Heuristic quality ${escapeHtml(item.quality_score ?? "n/a")}</span>
         </div>
       </article>
     `).join("")
@@ -311,7 +311,7 @@ async function processUpload(event) {
     <div class="metric-grid">
       <div class="metric"><span>Rows</span><strong>${escapeHtml(result.summary.rows)}</strong></div>
       <div class="metric"><span>Columns</span><strong>${escapeHtml(result.summary.columns)}</strong></div>
-      <div class="metric"><span>Quality Score</span><strong>${escapeHtml(result.quality_report.score)}</strong></div>
+      <div class="metric"><span>Heuristic Quality</span><strong>${escapeHtml(result.quality_report.score)}</strong></div>
       <div class="metric"><span>Duplicates</span><strong>${escapeHtml(result.summary.duplicate_rows)}</strong></div>
     </div>
     <div class="detail-section">
