@@ -40,6 +40,10 @@ dataforge-vault-503/
 dataforge-vault-live/
 dataforge-teams-rbac/
 dataforge-teams-ui/
+New/
+.codex-review/
+dataforge-frontend-pipeline/
+README (1).md
 .codex-*.log
 data/
 tmp/

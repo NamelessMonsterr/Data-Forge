@@ -51,3 +51,66 @@ def test_unified_search_returns_local_and_no_fabricated_public_results(tmp_path:
     assert search["counts"]["public"] == 0
     assert search["results"]
     assert {item["source"] for item in search["results"]} == {"local_upload"}
+
+
+class FailingDiscovery:
+    def search(self, query: str, intensity: str = "medium", limit: int | None = None):
+        return {
+            "enabled": True,
+            "query": query,
+            "intensity": intensity,
+            "providers_used": ["huggingface", "data.gov"],
+            "results": [],
+            "errors": ["huggingface (healthcare): transport error: timed out"],
+        }
+
+
+class PartialDiscovery:
+    def search(self, query: str, intensity: str = "medium", limit: int | None = None):
+        return {
+            "enabled": True,
+            "query": query,
+            "intensity": intensity,
+            "providers_used": ["huggingface", "data.gov"],
+            "results": [
+                {
+                    "id": "hf/example",
+                    "title": "Healthcare Example",
+                    "url": "https://huggingface.co/datasets/hf/example",
+                    "source": "HuggingFace Hub",
+                    "provider": "huggingface",
+                    "description": "Healthcare patient demographics.",
+                    "downloads": 120,
+                    "tags": ["healthcare"],
+                }
+            ],
+            "errors": ["data.gov (healthcare): data.gov returned status 503"],
+        }
+
+
+def test_unified_search_reports_provider_failure_status(tmp_path: Path):
+    repository = JsonRepository(tmp_path / "state.json")
+    catalog = DatasetCatalogService(repository)
+    search = UnifiedDatasetSearchService(catalog, discovery=FailingDiscovery()).search(
+        "healthcare",
+        include_public=True,
+    )
+
+    assert search["search_status"] == "failed"
+    assert search["warnings"] == ["huggingface (healthcare): transport error: timed out"]
+    assert search["discovery"]["providers_used"] == ["huggingface", "data.gov"]
+    assert search["counts"]["returned"] == 0
+
+
+def test_unified_search_reports_partial_provider_status(tmp_path: Path):
+    repository = JsonRepository(tmp_path / "state.json")
+    catalog = DatasetCatalogService(repository)
+    search = UnifiedDatasetSearchService(catalog, discovery=PartialDiscovery()).search(
+        "healthcare",
+        include_public=True,
+    )
+
+    assert search["search_status"] == "partial"
+    assert search["warnings"] == ["data.gov (healthcare): data.gov returned status 503"]
+    assert search["counts"]["public"] == 1
+    assert search["results"][0]["source"] == "HuggingFace Hub"

@@ -11,6 +11,7 @@ key to ``users`` (which lives in a separate auth database). Call
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import threading
 from dataclasses import dataclass
@@ -38,8 +39,8 @@ class ProviderCredentialRecord:
 class VaultStore:
     """Transactional SQLite store for ``provider_credentials``."""
 
-    def __init__(self, path: Path | str = "tmp/dataforge_vault.db") -> None:
-        self.path = Path(path)
+    def __init__(self, path: Path | str | None = None) -> None:
+        self.path = Path(path or os.getenv("DATAFORGE_VAULT_DB", "tmp/dataforge_vault.db"))
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._schema_lock = threading.Lock()
         self._ensure_schema()

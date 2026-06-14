@@ -84,6 +84,19 @@ class StoreTest(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         self.store = VaultStore(os.path.join(self.tmp, "vault.db"))
 
+    def test_default_path_can_come_from_env(self):
+        path = os.path.join(self.tmp, "env-vault.db")
+        old = os.environ.get("DATAFORGE_VAULT_DB")
+        os.environ["DATAFORGE_VAULT_DB"] = path
+        try:
+            store = VaultStore()
+            self.assertEqual(os.path.abspath(str(store.path)), os.path.abspath(path))
+        finally:
+            if old is None:
+                os.environ.pop("DATAFORGE_VAULT_DB", None)
+            else:
+                os.environ["DATAFORGE_VAULT_DB"] = old
+
     def test_insert_and_get(self):
         self.store.upsert("user-alice", "nvidia", "ENC1", None)
         rec = self.store.get("user-alice", "nvidia")

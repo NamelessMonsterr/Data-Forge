@@ -25,17 +25,20 @@
   async function request(path, options) {
     options = options || {};
     var url = cfg.apiBase.replace(/\/$/, "") + path;
+    var method = (options.method || "GET").toUpperCase();
+    var canRetry = method === "GET" || method === "HEAD";
+    var maxAttempts = canRetry ? cfg.maxRetries : 0;
     var headers = Object.assign({ "Content-Type": "application/json" }, options.headers || {});
     if (global.DATAFORGE_API_KEY) headers["x-api-key"] = global.DATAFORGE_API_KEY;
 
     var attempt = 0;
     var lastError;
-    while (attempt <= cfg.maxRetries) {
+    while (attempt <= maxAttempts) {
       var controller = new AbortController();
       try {
         var resp = await withTimeout(
           fetch(url, {
-            method: options.method || "GET",
+            method: method,
             credentials: "include",
             headers: headers,
             body: options.body ? JSON.stringify(options.body) : undefined,
@@ -46,6 +49,7 @@
         );
         if (resp.status === 429 || resp.status >= 500) {
           lastError = new ApiError("Server busy", resp.status);
+          if (attempt >= maxAttempts) break;
           await sleep(200 * Math.pow(2, attempt));
           attempt++;
           continue;
@@ -57,10 +61,9 @@
         }
         return data;
       } catch (err) {
-        if (err instanceof ApiError && err.status && err.status < 500 && err.status !== 429) {
-          throw err; // non-retryable client error
-        }
+        if (err instanceof ApiError) throw err;
         lastError = err;
+        if (!canRetry || attempt >= maxAttempts) throw err;
         await sleep(200 * Math.pow(2, attempt));
         attempt++;
       }
@@ -73,23 +76,33 @@
     health: function () { return request("/health"); },
     ready: function () { return request("/ready"); },
     llmStatus: function () { return request("/ai/llm/status"); },
+    agentCards: function () { return request("/agents/cards"); },
     // POST /datasets/search { query, include_public, limit, intensity }
     searchDatasets: function (query, opts) {
       opts = (opts && typeof opts === "object") ? opts : {};
+      var body = {
+        query: query || "",
+        include_public: opts.includePublic !== false,
+        intensity: opts.intensity || "medium",
+      };
+      if (opts.limit != null) body.limit = opts.limit;
       return request("/datasets/search", {
         method: "POST",
-        body: {
-          query: query || "",
-          include_public: opts.includePublic !== false,
-          limit: opts.limit || 12,
-          intensity: opts.intensity || "medium",
-        },
+        body: body,
       });
     },
     processDataset: function (payload) {
       return request("/datasets/process", { method: "POST", body: payload });
     },
+    savePublicDataset: function (candidate, query) {
+      return request("/datasets/save-public", {
+        method: "POST",
+        body: { candidate: candidate || {}, query: query || "" },
+      });
+    },
     catalog: function () { return request("/datasets/catalog"); },
+    workflowRuns: function () { return request("/workflow/runs"); },
+    workflowRun: function (taskId) { return request("/workflow/runs/" + encodeURIComponent(taskId)); },
     // GET /discovery/search?q=&intensity=
     discovery: function (query, opts) {
       opts = (opts && typeof opts === "object") ? opts : {};

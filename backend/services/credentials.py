@@ -29,6 +29,7 @@ from .discovery import (
     DiscoveryService,
     HuggingFaceProvider,
     KaggleProvider,
+    WebSearchProvider,
 )
 from .llm_orchestrator import (
     DeterministicSkillProvider,
@@ -73,7 +74,7 @@ def _provider_key_for(user, vault, env: dict, provider: str) -> str:
     if normalized in {"nim", "nvidia"}:
         return env.get("NVIDIA_API_KEY") or env.get("DATAFORGE_LLM_API_KEY") or ""
     if normalized == "openai":
-        return env.get("OPENAI_API_KEY") or env.get("DATAFORGE_LLM_API_KEY") or ""
+        return env.get("OPENAI_API_KEY") or ""
     return ""
 
 
@@ -127,11 +128,17 @@ def build_skill_orchestrator_for(user, vault, env=None) -> SkillLLMOrchestrator:
                         api_key=api_key,
                         base_url=e.get(
                             "NVIDIA_NIM_BASE_URL",
-                            "https://integrate.api.nvidia.com/v1",
+                            e.get(
+                                "DATAFORGE_LLM_BASE_URL",
+                                "https://integrate.api.nvidia.com/v1",
+                            ),
                         ),
                         model=e.get(
                             "NVIDIA_NIM_MODEL",
-                            "meta/llama-3.1-70b-instruct",
+                            e.get(
+                                "DATAFORGE_LLM_MODEL",
+                                "meta/llama-3.1-8b-instruct",
+                            ),
                         ),
                         timeout_seconds=timeout,
                     )
@@ -182,6 +189,7 @@ def build_discovery_service_for(user, vault, env=None, client=None) -> Discovery
     hf_token = huggingface_token_for(user, vault, env=e)
     providers = [
         HuggingFaceProvider(client=client, token=hf_token or None),
+        WebSearchProvider(client=client),
         DataGovProvider(client=client),
         KaggleProvider(client=client, username=username, key=key),
     ]

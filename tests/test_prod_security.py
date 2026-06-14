@@ -100,6 +100,10 @@ class SecurityPolicyTest(unittest.TestCase):
         d = self.policy().evaluate("/datasets/process", "wrong", 10, "c")
         self.assertEqual(d.status, 401)
 
+    def test_valid_session_bypasses_api_key_middleware_gate(self):
+        d = self.policy().evaluate("/datasets/process", None, 10, "c", has_session=True)
+        self.assertTrue(d.allowed)
+
     def test_rate_limit_enforced(self):
         p = self.policy()
         for _ in range(2):

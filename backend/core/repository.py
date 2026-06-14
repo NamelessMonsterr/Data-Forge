@@ -59,6 +59,7 @@ class RunRecord:
     artifacts: dict[str, str]
     created_at: str
     completed_at: str | None = None
+    stage_trace: list[dict[str, Any]] = field(default_factory=list)
     user_id: str | None = None
 
 
@@ -87,6 +88,7 @@ class DatasetCatalogRecord:
     quality_narrative: str = ""
     quality_metrics: dict[str, Any] = field(default_factory=dict)
     dataset_card: str = ""
+    source_url: str = ""
     user_id: str | None = None
 
 
@@ -228,12 +230,20 @@ class JsonRepository:
             for project_id, payload in raw.get("projects", {}).items()
         }
         runs = {
-            task_id: RunRecord(**payload)
+            task_id: RunRecord(**{"stage_trace": [], **payload})
             for task_id, payload in raw.get("runs", {}).items()
         }
         datasets = {
             dataset_id: DatasetCatalogRecord(
-                **{"ai_summary": "", "ai_provider": "local", **payload}
+                **{
+                    "ai_summary": "",
+                    "ai_provider": "local",
+                    "quality_narrative": "",
+                    "quality_metrics": {},
+                    "dataset_card": "",
+                    "source_url": "",
+                    **payload,
+                }
             )
             for dataset_id, payload in raw.get("datasets", {}).items()
         }

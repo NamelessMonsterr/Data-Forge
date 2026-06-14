@@ -4,6 +4,9 @@ import os
 import tempfile
 from uuid import uuid4
 
+os.environ.setdefault("DATAFORGE_RATE_CAPACITY", "1000")
+os.environ.setdefault("DATAFORGE_SKIP_DOTENV", "true")
+
 from fastapi.testclient import TestClient
 
 import backend.app.main as app_main
@@ -88,6 +91,26 @@ def test_local_frontend_origin_is_allowed_by_cors():
     assert response.headers["access-control-allow-origin"] == "http://127.0.0.1:5173"
 
 
+def test_unconfigured_forwarded_frontend_origin_is_rejected_by_cors():
+    """Public tunnel origins must be explicitly configured, not wildcard-accepted."""
+    client = TestClient(app)
+
+    for origin in [
+        "https://dataforge-demo.ngrok-free.app",
+        "https://21ph894q-5173.inc1.devtunnels.ms",
+    ]:
+        response = client.options(
+            "/datasets/search",
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+
+        assert response.status_code == 400
+        assert "access-control-allow-origin" not in response.headers
+
+
 def test_discovery_search_endpoint_returns_ranked_candidates():
     """Discovery API should be honest when live public discovery is disabled."""
     client = TestClient(app)
@@ -107,7 +130,7 @@ def test_discovery_search_endpoint_returns_ranked_candidates():
 
 def test_dataset_ingest_endpoint_returns_normalized_preview():
     """Dataset ingestion should parse real user content and expose demo-ready metadata."""
-    client = TestClient(app)
+    client = authenticated_client()
 
     response = client.post(
         "/datasets/ingest",
@@ -129,7 +152,7 @@ def test_dataset_ingest_endpoint_returns_normalized_preview():
 
 def test_dataset_ingest_endpoint_returns_400_for_invalid_upload():
     """Invalid uploads should return a friendly client error instead of a 500."""
-    client = TestClient(app)
+    client = authenticated_client()
 
     response = client.post(
         "/datasets/ingest",
@@ -138,6 +161,18 @@ def test_dataset_ingest_endpoint_returns_400_for_invalid_upload():
 
     assert response.status_code == 400
     assert "Unsupported dataset format" in response.json()["detail"]
+
+
+def test_dataset_ingest_requires_authentication():
+    """Ingestion writes artifacts, so it must require a user session."""
+    client = TestClient(app)
+
+    response = client.post(
+        "/datasets/ingest",
+        json={"filename": "healthcare.csv", "content": "a\n1\n"},
+    )
+
+    assert response.status_code == 401
 
 
 def test_dataset_process_endpoint_generates_downloadable_artifacts():
@@ -162,6 +197,8 @@ def test_dataset_process_endpoint_generates_downloadable_artifacts():
     assert body["artifacts"]["dataset_zip"].endswith("dataset.zip")
     assert body["artifacts"]["manifest"].endswith("manifest.json")
     assert body["catalog_record"]["source"] == "local_upload"
+    assert len(body["stage_trace"]) == 7
+    assert body["stage_trace"][0]["name"] == "Requirement Analyzer"
     assert body["checksums"]
 
 
@@ -210,6 +247,57 @@ def test_dataset_search_endpoint_finds_processed_uploads():
     assert any(item["source"] == "local_upload" for item in search["results"])
 
 
+def test_public_dataset_result_can_be_saved_to_catalog():
+    """A public search result with a URL should be persistable for later access."""
+    client = authenticated_client()
+    candidate = {
+        "id": "hf/demo",
+        "title": "HF Demo Dataset",
+        "provider": "huggingface",
+        "source": "HuggingFace Hub",
+        "url": "https://huggingface.co/datasets/hf/demo",
+        "description": "A public dataset.",
+        "downloads": 42,
+        "tags": ["healthcare", "csv"],
+        "relevance_score": 0.8,
+    }
+
+    response = client.post(
+        "/datasets/save-public",
+        json={"candidate": candidate, "query": "healthcare"},
+    )
+    catalog = client.get("/datasets/catalog").json()
+
+    assert response.status_code == 200
+    saved = response.json()["dataset"]
+    assert saved["source_url"] == candidate["url"]
+    assert saved["url"] == candidate["url"]
+    assert saved["source"] == "HuggingFace Hub"
+    assert any(item["id"] == saved["id"] for item in catalog["datasets"])
+
+
+def test_public_dataset_save_rejects_unsafe_source_url():
+    """Persisted public links must be safe clickable HTTP(S) URLs only."""
+    client = authenticated_client()
+
+    response = client.post(
+        "/datasets/save-public",
+        json={
+            "candidate": {
+                "id": "evil",
+                "title": "Evil Dataset",
+                "provider": "web",
+                "source": "web",
+                "url": "javascript:alert(1)",
+            },
+            "query": "evil",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "http or https" in response.json()["detail"]
+
+
 def test_project_and_run_status_surfaces():
     """Projects and workflow runs should be queryable through platform APIs."""
     client = authenticated_client()
@@ -226,13 +314,39 @@ def test_project_and_run_status_surfaces():
         },
     ).json()
     status = client.get(f"/workflow/status/{workflow['task_id']}").json()
+    run_detail = client.get(f"/workflow/runs/{workflow['task_id']}").json()
     project_detail = client.get(f"/projects/{project['project_id']}").json()
 
     assert status["run"]["task_id"] == workflow["task_id"]
     assert status["run"]["project_id"] == project["project_id"]
+    assert run_detail["run"]["task_id"] == workflow["task_id"]
+    assert run_detail["stage_trace"]
     assert workflow["status"] == "aborted"
     assert project_detail["project"]["name"] == "Healthcare Dataset"
     assert project_detail["runs"]
+
+
+def test_runs_cannot_attach_to_another_users_project():
+    """project_id linkage must enforce edit access before saving runs."""
+    alice, _ = authenticated_client_with_email()
+    bob, _ = authenticated_client_with_email()
+    project = alice.post("/projects", json={"name": "Alice Private"}).json()
+
+    process = bob.post(
+        "/datasets/process",
+        json={
+            "project_id": project["project_id"],
+            "filename": "x.csv",
+            "content": "a\n1\n",
+        },
+    )
+    workflow = bob.post(
+        "/workflow/start",
+        json={"project_id": project["project_id"], "request": "private"},
+    )
+
+    assert process.status_code == 403
+    assert workflow.status_code == 403
 
 
 def test_artifact_endpoints_reject_invalid_task_ids():
@@ -251,10 +365,25 @@ def test_saved_resource_routes_require_authentication():
     client = TestClient(app)
 
     assert client.post("/datasets/process", json={"filename": "x.csv", "content": "a\n1\n"}).status_code == 401
+    assert client.post("/datasets/ingest", json={"filename": "x.csv", "content": "a\n1\n"}).status_code == 401
     assert client.get("/datasets/catalog").status_code == 401
-    assert client.post("/datasets/search", json={"query": "x"}).status_code == 401
     assert client.post("/projects", json={"name": "Private"}).status_code == 401
     assert client.post("/workflow/start", json={"request": "private"}).status_code == 401
+
+
+def test_anonymous_dataset_search_can_use_public_discovery_surface():
+    """Discover should search public providers without forcing login."""
+    client = TestClient(app)
+
+    response = client.post(
+        "/datasets/search",
+        json={"query": "diabetes prediction", "include_public": True, "intensity": "easy"},
+    )
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["counts"]["local"] == 0
+    assert "results" in body
 
 
 def test_team_share_makes_dataset_and_run_visible_to_member():
@@ -318,6 +447,23 @@ def test_team_share_makes_dataset_and_run_visible_to_member():
     status = bob.get(f"/workflow/status/{task_id}")
     assert status.status_code == 200
     assert status.json()["run"]["task_id"] == task_id
+
+
+def test_reports_endpoint_returns_names_not_filesystem_paths():
+    """Report listings should not leak server-local absolute paths."""
+    client = authenticated_client()
+    processed = client.post(
+        "/datasets/process",
+        json={"filename": "reports.csv", "content": "a\n1\n"},
+    ).json()
+
+    response = client.get(f"/reports/{processed['task_id']}")
+
+    assert response.status_code == 200
+    for report in response.json()["reports"]:
+        assert "\\" not in report
+        assert "/" not in report
+        assert not os.path.isabs(report)
 
 
 def test_team_share_does_not_share_provider_vault_keys():

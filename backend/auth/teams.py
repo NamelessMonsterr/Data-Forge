@@ -23,6 +23,7 @@ app it crosses the store boundary by id rather than a cross-database FK.
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import threading
 from dataclasses import dataclass
@@ -116,8 +117,8 @@ class ShareRecord:
 class TeamStore:
     """Transactional SQLite store for teams, membership, and shares."""
 
-    def __init__(self, path: Path | str = "tmp/dataforge_teams.db") -> None:
-        self.path = Path(path)
+    def __init__(self, path: Path | str | None = None) -> None:
+        self.path = Path(path or os.getenv("DATAFORGE_TEAMS_DB", "tmp/dataforge_teams.db"))
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._schema_lock = threading.Lock()
         self._ensure_schema()
@@ -475,9 +476,14 @@ class TeamService:
     def add_member(
         self, team_id: str, target_user_id: str, team_role: str, user: object
     ) -> TeamMemberRecord:
-        if self.store.get_team(team_id) is None:
+        team = self.store.get_team(team_id)
+        if team is None:
             raise TeamNotFound(team_id)
         self._require_manager(team_id, user)
+        if target_user_id == team.owner_id and team_role != "owner":
+            raise InsufficientTeamRole("cannot demote the team owner")
+        if target_user_id != team.owner_id and team_role == "owner":
+            raise InsufficientTeamRole("owner role requires ownership transfer")
         return self.store.add_member(team_id, target_user_id, team_role)
 
     def remove_member(self, team_id: str, target_user_id: str, user: object) -> None:

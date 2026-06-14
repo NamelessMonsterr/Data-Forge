@@ -11,6 +11,7 @@ from backend.services.discovery import (  # noqa: E402
     DiscoveryService,
     HuggingFaceProvider,
     KaggleProvider,
+    WebSearchProvider,
     resolve_intensity,
 )
 
@@ -24,6 +25,16 @@ class FakeClient:
     def get(self, url, headers, timeout):
         self.last_url = url
         return self.status, self.body
+
+
+class SequenceClient:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.urls = []
+
+    def get(self, url, headers, timeout):
+        self.urls.append(url)
+        return self.responses.pop(0)
 
 
 class RecordingProvider:
@@ -52,6 +63,35 @@ CKAN_BODY = json.dumps({
         {"name": "crime-data", "title": "Crime Data", "notes": "n", "tags": [{"name": "safety"}]},
     ]},
 })
+
+DATAGOV_HTML = """
+<ul class="usa-collection organization-datasets__list">
+  <li class="usa-collection__item organization-datasets__item margin-0">
+    <div class="dataset-content">
+      <h3 class="usa-collection__heading margin-0">
+        <a class="usa-link" href="/dataset/healthcare-demographics">
+          Healthcare Demographics
+        </a>
+      </h3>
+      <p class="usa-collection__description">
+        Public healthcare demographic records for analysis.
+      </p>
+      <a href="/dataset/healthcare-demographics" class="label" data-format="csv">csv</a>
+    </div>
+  </li>
+</ul>
+"""
+
+WEB_HTML = """
+<ol>
+  <li class="b_algo">
+    <h2><a href="https://www.bing.com/ck/a?u=a1aHR0cHM6Ly9leGFtcGxlLmVkdS9kYXRhc2V0cy9oZWFsdGhjYXJlLmNzdg">Example Healthcare Dataset</a></h2>
+  </li>
+  <li class="b_algo">
+    <h2><a href="https://example.org/open-data">Open Data Repository</a></h2>
+  </li>
+</ol>
+"""
 
 
 class HuggingFaceTest(unittest.TestCase):
@@ -89,6 +129,19 @@ class DataGovTest(unittest.TestCase):
         with self.assertRaises(DiscoveryError):
             DataGovProvider(client=FakeClient(200, json.dumps({"success": False}))).search("x")
 
+    def test_ckan_404_falls_back_to_public_html_search(self):
+        client = SequenceClient([
+            (404, "not found"),
+            (200, DATAGOV_HTML),
+        ])
+        refs = DataGovProvider(client=client).search("healthcare demographics", limit=5)
+
+        self.assertEqual(refs[0].id, "healthcare-demographics")
+        self.assertEqual(refs[0].title, "Healthcare Demographics")
+        self.assertEqual(refs[0].url, "https://catalog.data.gov/dataset/healthcare-demographics")
+        self.assertEqual(refs[0].tags, ["csv"])
+        self.assertIn("/dataset/?q=healthcare+demographics", client.urls[1])
+
 
 class KaggleTest(unittest.TestCase):
     def test_unconfigured_returns_empty(self):
@@ -101,6 +154,33 @@ class KaggleTest(unittest.TestCase):
         provider = KaggleProvider(client=FakeClient(200, body),
                                   env={"KAGGLE_USERNAME": "u", "KAGGLE_KEY": "k"})
         self.assertEqual(provider.search("x")[0].url, "https://www.kaggle.com/datasets/u/ds")
+
+
+class WebSearchTest(unittest.TestCase):
+    def test_parses_real_search_result_links(self):
+        client = FakeClient(200, WEB_HTML)
+        refs = WebSearchProvider(client=client).search("healthcare", limit=5)
+
+        self.assertEqual(refs[0].title, "Example Healthcare Dataset")
+        self.assertEqual(refs[0].url, "https://example.edu/datasets/healthcare.csv")
+        self.assertEqual(refs[0].source, "Web")
+        self.assertEqual(refs[0].provider, "web")
+        self.assertIn("dataset", refs[0].tags)
+        self.assertIn("q=healthcare+dataset+data+repository+csv", client.last_url)
+
+    def test_normalizes_duckduckgo_redirect_links(self):
+        html = """
+        <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.edu%2Fdata">
+          Redirected Dataset
+        </a>
+        """
+        refs = WebSearchProvider(client=FakeClient(200, html)).search("healthcare", limit=5)
+
+        self.assertEqual(refs[0].url, "https://example.edu/data")
+
+    def test_non_200_raises(self):
+        with self.assertRaises(DiscoveryError):
+            WebSearchProvider(client=FakeClient(503, "down")).search("x")
 
 
 class DiscoveryServiceTest(unittest.TestCase):
@@ -129,6 +209,13 @@ class DiscoveryServiceTest(unittest.TestCase):
         self.assertEqual(len(out["results"]), 2)
         self.assertEqual(len(out["errors"]), 1)
 
+    def test_default_provider_stack_includes_generic_web_search(self):
+        svc = DiscoveryService(env={})
+        self.assertEqual(
+            [provider.name for provider in svc.providers],
+            ["huggingface", "web", "data.gov", "kaggle"],
+        )
+
 
 class IntensityTest(unittest.TestCase):
     def _live_service(self, n_providers):
@@ -151,8 +238,8 @@ class IntensityTest(unittest.TestCase):
         self.assertEqual(out["limit_per_provider"], 5)
 
     def test_intense_consults_all_providers_large_limit(self):
-        out = self._live_service(3).search("x", intensity="intense")
-        self.assertEqual(len(out["providers_used"]), 3)
+        out = self._live_service(4).search("x", intensity="intense")
+        self.assertEqual(len(out["providers_used"]), 4)
         self.assertEqual(out["limit_per_provider"], 100)
 
     def test_explicit_limit_overrides_profile(self):
@@ -164,6 +251,22 @@ class IntensityTest(unittest.TestCase):
         svc = DiscoveryService(providers=[rec, rec, rec], env={"DATAFORGE_DISCOVERY_LIVE": "true"})
         svc.search("x", intensity="medium")
         self.assertEqual(rec.calls[0], 12)
+
+    def test_harder_intensity_runs_extra_query_passes(self):
+        rec = RecordingProvider()
+        svc = DiscoveryService(providers=[rec], env={"DATAFORGE_DISCOVERY_LIVE": "true"})
+        out = svc.search("diabetes patient outcome", intensity="hard")
+        self.assertEqual(out["query_passes"], 2)
+        self.assertEqual(len(out["queries_used"]), 2)
+        self.assertEqual(rec.calls, [25, 25])
+
+    def test_intense_runs_deepest_query_plan(self):
+        rec = RecordingProvider()
+        svc = DiscoveryService(providers=[rec], env={"DATAFORGE_DISCOVERY_LIVE": "true"})
+        out = svc.search("healthcare diabetes patient demographics", intensity="intense")
+        self.assertEqual(out["query_passes"], 4)
+        self.assertEqual(len(out["queries_used"]), 4)
+        self.assertEqual(rec.calls, [100, 100, 100, 100])
 
     def test_unknown_intensity_falls_back_to_medium(self):
         out = self._live_service(3).search("x", intensity="turbo")

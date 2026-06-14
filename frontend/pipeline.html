@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DataForge - Pipeline</title>
+    <meta name="description" content="The DataForge agent brain: the live execution pipeline and the full agent registry." />
+    <meta name="dataforge-api-base" content="http://127.0.0.1:8000" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body data-page="pipeline">
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="index.html" aria-label="DataForge home">
+          <span class="brand-mark" aria-hidden="true">DF</span><span>DataForge</span>
+        </a>
+        <nav class="nav" aria-label="Primary">
+          <a href="index.html">Discover</a>
+          <a href="forge.html">Forge</a>
+          <a href="catalog.html">Catalog</a>
+          <a href="teams.html">Teams</a>
+          <a href="pipeline.html" aria-current="page">Pipeline</a>
+        </nav>
+        <button class="provider" id="providerStatus" data-mode="offline" type="button">AI - Offline</button>
+        <div class="account" id="accountBox"></div>
+      </header>
+
+      <main>
+        <section class="page-head">
+          <span class="eyebrow">The agent brain</span>
+          <h1>The <em>Pipeline</em> and registry.</h1>
+          <p>DataForge is not just search UI. The Planner is the brain: it selects registry agents, builds the workflow graph, and the execution engine records what actually ran. This page shows the real 7-stage user path and the full 17-agent registry separately.</p>
+        </section>
+
+        <div class="pipe-meta">
+          <span class="pipe-chip">1 Planner brain</span>
+          <span class="pipe-chip">17 execution agents</span>
+          <span class="pipe-chip ghost">18 intelligent components total</span>
+          <span class="pipe-chip ghost">7 live user-visible stages</span>
+        </div>
+
+        <section class="brain-grid" aria-label="Architecture split">
+          <article class="brain-card">
+            <span class="num">Brain</span>
+            <h3>Planner</h3>
+            <p>Chooses agents, order, branches, retries, and fallback strategy. It never mutates datasets.</p>
+          </article>
+          <article class="brain-card">
+            <span class="num">Workers</span>
+            <h3>Registry agents</h3>
+            <p>Seventeen domain agents perform discovery, governance, processing, evaluation, generation, packaging, and audit work.</p>
+          </article>
+          <article class="brain-card">
+            <span class="num">Support</span>
+            <h3>Services</h3>
+            <p>Reports, manifests, ZIPs, checksums, vault, teams, and storage stay deterministic service layers, not agents.</p>
+          </article>
+        </section>
+
+        <section class="pipe-flow" id="pipelineFlow"></section>
+
+        <div class="cmdbar">
+          <button class="button ghost" id="registryToggle" type="button" aria-expanded="true">Hide full agent registry</button>
+        </div>
+        <section class="registry" id="registryPanel"></section>
+
+        <section class="page-head">
+          <span class="eyebrow">Proof, not promises</span>
+          <h2>Latest <em>forge run</em>.</h2>
+          <p>Rendered from a real stored run so you can see the pipeline's actual output, including which AI provider produced the summary.</p>
+        </section>
+        <p class="status-line" id="statusLine"></p>
+        <section id="latestRun"></section>
+      </main>
+
+      <footer class="foot">
+        <span>DataForge - Pipeline</span>
+        <span>Real stages - labeled engines - honest registry</span>
+      </footer>
+    </div>
+
+    <div class="toast" id="toast" role="status"></div>
+    <script src="config.js"></script>
+    <script src="api-client.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

@@ -8,6 +8,12 @@ services:
     environment:
       DATAFORGE_PERSISTENCE: "sqlite"
       DATAFORGE_DB_PATH: "/data/dataforge.db"
+      DATAFORGE_AUTH_DB: "/data/auth.db"
+      DATAFORGE_TEAMS_DB: "/data/teams.db"
+      DATAFORGE_VAULT_DB: "/data/vault.db"
+      DATAFORGE_VAULT_KEY: "${DATAFORGE_VAULT_KEY:?set a >=16-byte vault key}"
+      DATAFORGE_SESSION_COOKIE: "${DATAFORGE_SESSION_COOKIE:-dataforge_session}"
+      DATAFORGE_COOKIE_SECURE: "${DATAFORGE_COOKIE_SECURE:-true}"
       DATAFORGE_API_KEYS: "${DATAFORGE_API_KEYS:-}"
       DATAFORGE_CORS_ORIGINS: "${DATAFORGE_CORS_ORIGINS:-http://localhost:5173}"
       DATAFORGE_MAX_BODY_BYTES: "${DATAFORGE_MAX_BODY_BYTES:-10485760}"

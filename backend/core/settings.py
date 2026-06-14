@@ -51,6 +51,25 @@ class AppSettings:
     llm: LLMSettings = field(default_factory=LLMSettings)
 
 
+def load_env_file(path: str | Path = ".env") -> None:
+    """Load simple KEY=VALUE pairs from a local env file without overriding env."""
+    if os.getenv("DATAFORGE_SKIP_DOTENV", "").lower() in {"1", "true", "yes"}:
+        return
+    env_path = Path(path)
+    if not env_path.exists():
+        return
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not key or key in os.environ:
+            continue
+        value = value.strip().strip('"').strip("'")
+        os.environ[key] = value
+
+
 def get_settings() -> AppSettings:
     """Return default application settings."""
     provider_priority = tuple(

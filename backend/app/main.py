@@ -26,7 +26,7 @@ from backend.core.execution import ExecutionEngine
 from backend.core.repository import RunRecord, get_repository, utc_now
 from backend.core.registry import AGENT_REGISTRY, capability_matrix
 from backend.core.service_manifest import all_service_manifests
-from backend.core.settings import get_settings
+from backend.core.settings import get_settings, load_env_file
 from backend.services.catalog import DatasetCatalogService, UnifiedDatasetSearchService
 from backend.services.credentials import (
     build_discovery_service_for,
@@ -42,6 +42,7 @@ from planner.workflow_library import WORKFLOW_LIBRARY
 from router.hybrid_router import HybridRouter
 
 configure_logging()
+load_env_file()
 security_config = SecurityConfig.from_env()
 cors_origins = list(
     dict.fromkeys(
@@ -54,6 +55,10 @@ cors_origins = list(
         ]
     )
 )
+cors_origin_regex = os.getenv(
+    "DATAFORGE_CORS_ORIGIN_REGEX",
+    r"https?://(localhost|127\.0\.0\.1|0\.0\.0\.0|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:\d+)?",
+)
 
 app = FastAPI(
     title="DataForge AI",
@@ -63,6 +68,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
+    allow_origin_regex=cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -137,6 +143,22 @@ def run_for_task_or_404(task_id: str, user: object, *, need: str = "view") -> Ru
     )  # type: ignore[return-value]
 
 
+def validated_project_id(project_id: object, user: object) -> str | None:
+    """Validate optional project linkage before a run is attached to it."""
+    if project_id in (None, ""):
+        return None
+    project_id_str = str(project_id)
+    require_access(
+        repository().get_project(project_id_str),
+        "project",
+        "project_id",
+        user,
+        need="edit",
+        missing_detail="Project not found.",
+    )
+    return project_id_str
+
+
 def _team_error(exc: Exception) -> HTTPException:
     """Map team-domain errors to HTTP statuses."""
     if isinstance(exc, TeamNotFound):
@@ -172,6 +194,105 @@ def _share_json(share: object) -> dict:
         "permission": share.permission,
         "created_at": share.created_at,
     }
+
+
+def _stage_trace_item(
+    name: str,
+    *,
+    engine: str,
+    status: str = "completed",
+    output: dict | None = None,
+    skipped: bool = False,
+) -> dict:
+    """Small persisted trace item for Pipeline and run-detail views."""
+    return {
+        "name": name,
+        "engine": engine,
+        "status": "skipped" if skipped else status,
+        "output": output or {},
+    }
+
+
+def _upload_stage_trace(result: dict, catalog_record: object) -> list[dict]:
+    """Build the honest 7-stage trace for an uploaded dataset package run."""
+    summary = result.get("summary", {})
+    quality = result.get("quality_report", {})
+    artifacts = result.get("artifacts", {})
+    ai_provider = getattr(catalog_record, "ai_provider", "local")
+    return [
+        _stage_trace_item(
+            "Requirement Analyzer",
+            engine="deterministic",
+            output={"request": result.get("request") or "Analyze uploaded dataset."},
+        ),
+        _stage_trace_item(
+            "Planner",
+            engine="deterministic",
+            output={"workflow": "uploaded_dataset_package", "active_stages": 7},
+        ),
+        _stage_trace_item(
+            "Discovery / Ingestion",
+            engine="dataset_processing_service",
+            output={
+                "filename": result.get("ingestion", {}).get("filename"),
+                "rows": summary.get("rows"),
+                "columns": summary.get("columns"),
+            },
+        ),
+        _stage_trace_item(
+            "Quality Evaluator",
+            engine="deterministic_quality_metrics",
+            output={
+                "score": quality.get("score"),
+                "metrics": quality.get("metrics", {}),
+            },
+        ),
+        _stage_trace_item(
+            "AI Skills",
+            engine=str(ai_provider),
+            output={"summary_provider": ai_provider},
+        ),
+        _stage_trace_item(
+            "Packaging",
+            engine="packaging_services",
+            output={
+                "dataset_zip": artifacts.get("dataset_zip"),
+                "manifest": artifacts.get("manifest"),
+            },
+        ),
+        _stage_trace_item(
+            "Explainability",
+            engine=str(ai_provider),
+            output={
+                "dataset_card": bool(getattr(catalog_record, "dataset_card", "")),
+                "quality_narrative": bool(getattr(catalog_record, "quality_narrative", "")),
+            },
+        ),
+    ]
+
+
+def _execution_stage_trace(execution: object) -> list[dict]:
+    """Convert registry-agent messages into a persisted trace."""
+    trace = []
+    for message in getattr(execution, "messages", ()):
+        result = message.result if isinstance(message.result, dict) else {}
+        trace.append(
+            _stage_trace_item(
+                message.agent,
+                engine="registry_agent",
+                status=str(message.status.value if hasattr(message.status, "value") else message.status),
+                output={
+                    "confidence": message.confidence,
+                    "next_action": (
+                        message.next_action.value
+                        if hasattr(message.next_action, "value")
+                        else str(message.next_action)
+                    ),
+                    **result,
+                },
+            )
+        )
+    return trace
 
 
 def _resource_for_share(resource_type: str, resource_id: str) -> tuple[object | None, str]:
@@ -452,7 +573,7 @@ def discovery_providers(user=Depends(optional_user)) -> dict:
 
 
 @app.post("/datasets/ingest")
-def ingest_dataset(payload: dict) -> dict:
+def ingest_dataset(payload: dict, user=Depends(current_user)) -> dict:
     """Parse a dataset payload and write normalized ingestion artifacts."""
     settings = get_settings()
     service = DatasetIngestionService(settings.storage.artifacts_root / "ingestions")
@@ -471,6 +592,7 @@ def ingest_dataset(payload: dict) -> dict:
 def process_dataset(payload: dict, user=Depends(current_user)) -> dict:
     """Ingest uploaded dataset content and generate reports, manifest, and ZIP."""
     settings = get_settings()
+    project_id = validated_project_id(payload.get("project_id"), user)
     service = DatasetProcessingService(settings.storage.artifacts_root)
     try:
         result = service.process(
@@ -488,16 +610,19 @@ def process_dataset(payload: dict, user=Depends(current_user)) -> dict:
         result,
         user_id=user.id,
     )
+    result["request"] = str(payload.get("request", "Analyze uploaded dataset."))
+    stage_trace = _upload_stage_trace(result, catalog_record)
     repo.save_run(
         RunRecord(
             task_id=result["task_id"],
-            project_id=payload.get("project_id"),
+            project_id=project_id,
             workflow="dataset_process",
             status=result.get("status", "completed"),
             request=payload,
             artifacts=result.get("artifacts", {}),
             created_at=utc_now(),
             completed_at=utc_now(),
+            stage_trace=stage_trace,
             user_id=user.id,
         )
     )
@@ -506,6 +631,7 @@ def process_dataset(payload: dict, user=Depends(current_user)) -> dict:
         "title": catalog_record.title,
         "source": catalog_record.source,
     }
+    result["stage_trace"] = stage_trace
     return result
 
 
@@ -525,31 +651,54 @@ def list_dataset_catalog(user=Depends(current_user)) -> dict:
 
 
 @app.post("/datasets/search")
-def search_datasets(payload: dict, user=Depends(current_user)) -> dict:
-    """Search local uploaded datasets and optionally public dataset providers."""
+def search_datasets(payload: dict, user=Depends(optional_user)) -> dict:
+    """Search user-visible local datasets plus optional public providers.
+
+    Anonymous callers can use public discovery from the Discover page. Local
+    catalog results remain scoped to the authenticated user and their team
+    shares.
+    """
     orchestrator = build_skill_orchestrator_for(user, provider_vault)
     repo = repository()
-    visible_dataset_ids = {
-        record.dataset_id
-        for record in visible_records(
-            repo.list_datasets(),
-            "dataset",
-            "dataset_id",
-            user,
-            team_service,
-            need="view",
-        )
-    }
+    visible_dataset_ids: set[str] = set()
+    if user is not None:
+        visible_dataset_ids = {
+            record.dataset_id
+            for record in visible_records(
+                repo.list_datasets(),
+                "dataset",
+                "dataset_id",
+                user,
+                team_service,
+                need="view",
+            )
+        }
     catalog = DatasetCatalogService(repo, orchestrator=orchestrator)
     discovery = build_discovery_service_for(user, provider_vault)
     service = UnifiedDatasetSearchService(catalog, discovery=discovery)
+    limit_value = payload.get("limit")
     return service.search(
         query=str(payload.get("query", "")),
         include_public=bool(payload.get("include_public", False)),
-        limit=int(payload.get("limit", 10)),
+        limit=int(limit_value) if limit_value is not None else None,
         intensity=str(payload.get("intensity") or payload.get("search_intensity") or "medium"),
         allowed_dataset_ids=visible_dataset_ids,
     )
+
+
+@app.post("/datasets/save-public")
+def save_public_dataset(payload: dict, user=Depends(current_user)) -> dict:
+    """Save a public discovery/search result into the user's catalog."""
+    candidate = payload.get("candidate") if isinstance(payload.get("candidate"), dict) else payload
+    try:
+        record = DatasetCatalogService(repository()).save_public_candidate(
+            candidate,
+            user_id=user.id,
+            query=str(payload.get("query") or ""),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"dataset": DatasetCatalogService(repository())._record_to_dict(record)}
 
 
 @app.post("/projects")
@@ -609,6 +758,7 @@ def get_project(project_id: str, user=Depends(current_user)) -> dict:
 @app.post("/workflow/start")
 def start_workflow(payload: dict, user=Depends(current_user)) -> dict:
     """Plan, validate, execute, report, and package a dataset workflow."""
+    project_id = validated_project_id(payload.get("project_id"), user)
     planner = RuleBasedPlanner()
     plan = planner.plan(payload)
     if not plan.is_valid:
@@ -634,13 +784,14 @@ def start_workflow(payload: dict, user=Depends(current_user)) -> dict:
     repo.save_run(
         RunRecord(
             task_id=execution.task_id,
-            project_id=payload.get("project_id"),
+            project_id=project_id,
             workflow=execution.workflow,
             status=execution.status,
             request=payload,
             artifacts=execution.artifacts,
             created_at=utc_now(),
             completed_at=utc_now(),
+            stage_trace=_execution_stage_trace(execution),
             user_id=user.id,
         )
     )
@@ -683,6 +834,13 @@ def list_workflow_runs(project_id: str | None = None, user=Depends(current_user)
     return {"runs": [run.__dict__ for run in runs]}
 
 
+@app.get("/workflow/runs/{task_id}")
+def get_workflow_run(task_id: str, user=Depends(current_user)) -> dict:
+    """Return a persisted run with its stage trace for the Pipeline page."""
+    run = run_for_task_or_404(safe_task_id(task_id), user)
+    return {"run": run.__dict__, "stage_trace": run.stage_trace}
+
+
 @app.get("/router/status")
 def router_status() -> dict:
     """Return provider routing policy and current in-memory provider stats."""
@@ -704,7 +862,7 @@ def list_reports(task_id: str, user=Depends(current_user)) -> dict:
     reports_dir = get_settings().storage.artifacts_root / task_id / "reports"
     reports = []
     if reports_dir.exists():
-        reports = [str(path) for path in sorted(reports_dir.glob("*.md"))]
+        reports = [path.name for path in sorted(reports_dir.glob("*.md"))]
     return {"task_id": task_id, "reports": reports}
 
 

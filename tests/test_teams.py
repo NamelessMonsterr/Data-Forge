@@ -8,6 +8,7 @@ pins the invariant that the vault is *not* reachable through team sharing
 
 from __future__ import annotations
 
+import os
 import unittest
 from dataclasses import dataclass
 from pathlib import Path
@@ -51,6 +52,19 @@ class _Base(unittest.TestCase):
 
 
 class TeamLifecycleTest(_Base):
+    def test_default_path_can_come_from_env(self) -> None:
+        path = Path(self._tmp.name) / "env-teams.db"
+        old = os.environ.get("DATAFORGE_TEAMS_DB")
+        os.environ["DATAFORGE_TEAMS_DB"] = str(path)
+        try:
+            store = TeamStore()
+            self.assertEqual(store.path.resolve(), path.resolve())
+        finally:
+            if old is None:
+                os.environ.pop("DATAFORGE_TEAMS_DB", None)
+            else:
+                os.environ["DATAFORGE_TEAMS_DB"] = old
+
     def test_creator_becomes_owner_member(self) -> None:
         team = self.service.create_team("Data Team", self.alice)
         membership = self.store.get_membership(team.id, self.alice.id)
@@ -100,6 +114,21 @@ class MembershipGuardTest(_Base):
         self.service.add_member(team.id, self.bob.id, "admin", self.alice)
         with self.assertRaises(InsufficientTeamRole):
             self.service.remove_member(team.id, self.alice.id, self.bob)
+
+    def test_cannot_demote_owner(self) -> None:
+        team = self.service.create_team("T", self.alice)
+        self.service.add_member(team.id, self.bob.id, "admin", self.alice)
+        with self.assertRaises(InsufficientTeamRole):
+            self.service.add_member(team.id, self.alice.id, "member", self.bob)
+        self.assertEqual(
+            self.store.get_membership(team.id, self.alice.id).team_role, "owner"
+        )
+
+    def test_cannot_assign_owner_role_without_transfer(self) -> None:
+        team = self.service.create_team("T", self.alice)
+        with self.assertRaises(InsufficientTeamRole):
+            self.service.add_member(team.id, self.bob.id, "owner", self.alice)
+        self.assertIsNone(self.store.get_membership(team.id, self.bob.id))
 
     def test_role_upsert_is_idempotent(self) -> None:
         team = self.service.create_team("T", self.alice)

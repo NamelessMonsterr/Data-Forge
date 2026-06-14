@@ -5,7 +5,9 @@ from __future__ import annotations
 import re
 from typing import Any
 from uuid import uuid4
+from hashlib import sha256
 
+from backend.app.url_safety import validate_http_url
 from backend.core.repository import DatasetCatalogRecord, JsonRepository, utc_now
 from backend.services.ai_skills import (
     DataCardSkill,
@@ -13,7 +15,7 @@ from backend.services.ai_skills import (
     DatasetRecommendationSkill,
     DatasetSummarySkill,
 )
-from backend.services.discovery import DiscoveryService
+from backend.services.discovery import DiscoveryService, INTENSITY_PROFILES, resolve_intensity
 from backend.services.llm_orchestrator import LLMOrchestrator
 from backend.services.semantic_search import SemanticTextEncoder
 
@@ -92,6 +94,65 @@ class DatasetCatalogService:
             created_at=utc_now(),
             ai_summary=ai_summary.text,
             ai_provider=ai_summary.provider,
+            user_id=user_id,
+        )
+        return self.repository.save_dataset(record)
+
+    def save_public_candidate(
+        self,
+        candidate: dict[str, Any],
+        *,
+        user_id: str | None = None,
+        query: str = "",
+    ) -> DatasetCatalogRecord:
+        """Persist a public discovery result so a user can access it later."""
+        url = validate_http_url(candidate.get("url") or candidate.get("source_url") or "")
+        if not url:
+            raise ValueError("Public dataset result must include a source URL.")
+        title = str(candidate.get("title") or candidate.get("id") or "Public dataset")
+        provider = str(candidate.get("provider") or candidate.get("source") or "public")
+        source = str(candidate.get("source") or "public")
+        tags = [str(tag) for tag in candidate.get("tags", []) if str(tag).strip()][:16]
+        stable_id = sha256(f"{user_id or 'anon'}:{url}".encode("utf-8")).hexdigest()[:12]
+        description = str(candidate.get("description") or candidate.get("snippet") or "")
+        if not description:
+            description = f"Public dataset from {source} saved from search."
+        ai_summary = str(candidate.get("ai_summary") or description)
+        dataset_card = (
+            f"# {title}\n\n"
+            f"## Source\n{source}\n\n"
+            f"## URL\n{url}\n\n"
+            f"## Search Context\n{query or 'Unavailable'}\n\n"
+            f"## Summary\n{ai_summary}\n"
+        )
+        record = DatasetCatalogRecord(
+            dataset_id=f"public-{stable_id}",
+            title=title,
+            source=source,
+            provider=provider,
+            task_id=None,
+            filename=title,
+            format=str(candidate.get("format") or "external"),
+            rows=int(candidate.get("rows") or 0),
+            columns=int(candidate.get("columns") or 0),
+            schema=dict(candidate.get("schema") or {}),
+            stats={
+                "downloads": int(candidate.get("downloads") or 0),
+                "relevance_score": candidate.get("relevance_score"),
+                "discovery_score": candidate.get("discovery_score"),
+                "saved_from_query": query,
+            },
+            artifacts={},
+            quality_score=candidate.get("quality_score"),
+            quality_narrative=str(candidate.get("recommendation") or ""),
+            quality_metrics={},
+            dataset_card=dataset_card,
+            tags=sorted({*tags, "public", provider.lower()}),
+            description=description,
+            created_at=utc_now(),
+            ai_summary=ai_summary,
+            ai_provider=str(candidate.get("ai_provider") or "provider-metadata"),
+            source_url=url,
             user_id=user_id,
         )
         return self.repository.save_dataset(record)
@@ -201,6 +262,8 @@ class DatasetCatalogService:
             "schema": record.schema,
             "stats": record.stats,
             "artifacts": record.artifacts,
+            "source_url": record.source_url,
+            "url": record.source_url,
             "quality_score": record.quality_score,
             "quality_narrative": record.quality_narrative,
             "quality_metrics": record.quality_metrics,
@@ -315,28 +378,44 @@ class UnifiedDatasetSearchService:
         query: str,
         *,
         include_public: bool = False,
-        limit: int = 10,
+        limit: int | None = 10,
         intensity: str = "medium",
         user_id: str | None = None,
         allowed_dataset_ids: set[str] | None = None,
     ) -> dict[str, Any]:
         """Return merged local and public dataset results."""
+        level = resolve_intensity(intensity)
+        effective_limit = int(limit) if limit is not None else int(INTENSITY_PROFILES[level]["limit"])
         local = self.catalog.search(
             query,
-            limit=limit,
+            limit=effective_limit,
             user_id=user_id,
             allowed_dataset_ids=allowed_dataset_ids,
         )
-        public = self._public_results(query, limit, intensity) if include_public else []
+        discovery_payload: dict[str, Any] = {}
+        public: list[dict[str, Any]] = []
+        if include_public:
+            public, discovery_payload = self._public_results(query, limit, intensity)
         merged = sorted(
             [*local, *public],
             key=lambda item: item.get("relevance_score", item.get("discovery_score", 0.0)),
             reverse=True,
-        )[:limit]
+        )[:effective_limit]
+        warnings = [str(item) for item in discovery_payload.get("errors", [])]
+        search_status = self._search_status(
+            include_public=include_public,
+            returned=len(merged),
+            public_count=len(public),
+            discovery_payload=discovery_payload,
+            warnings=warnings,
+        )
         return {
             "query": query,
             "include_public": include_public,
-            "intensity": intensity,
+            "intensity": level,
+            "search_status": search_status,
+            "warnings": warnings,
+            "discovery": self._discovery_summary(discovery_payload),
             "results": merged,
             "counts": {
                 "local": len(local),
@@ -345,19 +424,52 @@ class UnifiedDatasetSearchService:
             },
         }
 
-    def _public_results(self, query: str, limit: int, intensity: str) -> list[dict[str, Any]]:
+    def _public_results(
+        self,
+        query: str,
+        limit: int | None,
+        intensity: str,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         discovery_payload = self.discovery.search(query, intensity=intensity, limit=limit)
-        candidates = discovery_payload.get("results", [])[:limit]
+        candidates = discovery_payload.get("results", [])
+        if limit is not None:
+            candidates = candidates[:limit]
         results = []
+        query_tokens = self.catalog._tokens(query)
         for candidate in candidates:
-            score = candidate.get("discovery_score", 0.0) or min(
+            title_tokens = self.catalog._tokens(str(candidate.get("title") or candidate.get("id") or ""))
+            desc_tokens = self.catalog._tokens(str(candidate.get("description") or ""))
+            tag_tokens = {
+                token
+                for tag in candidate.get("tags", [])
+                for token in self.catalog._tokens(str(tag))
+            }
+            searchable = set(title_tokens) | set(desc_tokens) | tag_tokens
+            overlap = len(query_tokens & searchable)
+            relevance = overlap / max(1, len(query_tokens))
+            provider = str(candidate.get("provider") or "").lower()
+            provider_weight = {"huggingface": 0.9, "kaggle": 0.85, "data.gov": 0.8}.get(provider, 0.7)
+            source = str(candidate.get("source") or candidate.get("provider") or "public")
+            popularity = min(1.0, float(candidate.get("downloads", 0) or 0) / 5000)
+            metadata = 0.0
+            if candidate.get("description"):
+                metadata += 0.4
+            if candidate.get("tags"):
+                metadata += 0.3
+            if candidate.get("url"):
+                metadata += 0.3
+            score = min(
                 1.0,
-                float(candidate.get("downloads", 0)) / 5000,
+                (0.55 * relevance)
+                + (0.20 * popularity)
+                + (0.15 * metadata)
+                + (0.10 * provider_weight),
             )
             results.append(
                 {
                     **candidate,
-                    "source": "public",
+                    "source": source,
+                    "result_type": "public",
                     "relevance_score": score,
                     "discovery_score": score,
                     "recommendation": (
@@ -366,7 +478,42 @@ class UnifiedDatasetSearchService:
                     ),
                 }
             )
-        return results
+        return results, discovery_payload
+
+    def _search_status(
+        self,
+        *,
+        include_public: bool,
+        returned: int,
+        public_count: int,
+        discovery_payload: dict[str, Any],
+        warnings: list[str],
+    ) -> str:
+        """Describe search outcome without relying on HTTP status alone."""
+        if not include_public:
+            return "complete" if returned else "empty"
+        if discovery_payload and discovery_payload.get("enabled") is False:
+            return "disabled" if not returned else "partial"
+        if warnings and public_count == 0 and returned == 0:
+            return "failed"
+        if warnings:
+            return "partial"
+        return "complete" if returned else "empty"
+
+    def _discovery_summary(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not payload:
+            return {"enabled": False, "errors": []}
+        return {
+            "enabled": bool(payload.get("enabled")),
+            "intensity": payload.get("intensity"),
+            "intensity_label": payload.get("intensity_label"),
+            "strategy": payload.get("strategy"),
+            "query_passes": payload.get("query_passes"),
+            "queries_used": payload.get("queries_used", []),
+            "providers_used": payload.get("providers_used", []),
+            "errors": payload.get("errors", []),
+            "note": payload.get("note", ""),
+        }
 
     def _domain_hint(self, query: str) -> str:
         tokens = [

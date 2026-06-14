@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from backend.auth.service import User  # noqa: E402
 from backend.vault import ProviderVault, SecretBox, VaultStore  # noqa: E402
 from backend.services.llm_provider import HttpLLMProvider  # noqa: E402
-from backend.services.discovery import KaggleProvider  # noqa: E402
+from backend.services.discovery import KaggleProvider, WebSearchProvider  # noqa: E402
 from backend.services.credentials import (  # noqa: E402
     build_discovery_service_for,
     build_llm_orchestrator_for,
@@ -121,6 +121,28 @@ class LlmConfigTest(unittest.TestCase):
         self.assertEqual(orch.providers[0].name, "openai")
         self.assertEqual(orch.providers[0].api_key, "ENV-OAI-KEY")
 
+    def test_skill_orchestrator_reuses_dataforge_nvidia_model_settings(self):
+        env = {
+            "DATAFORGE_LIVE_LLM": "true",
+            "DATAFORGE_LLM_PROVIDERS": "nim",
+            "DATAFORGE_LLM_API_KEY": "ENV-NV-KEY",
+            "DATAFORGE_LLM_BASE_URL": "https://nvidia.example/v1",
+            "DATAFORGE_LLM_MODEL": "meta/llama-3.1-8b-instruct",
+        }
+        orch = build_skill_orchestrator_for(self.bob, self.vault, env=env)
+        self.assertEqual(orch.providers[0].name, "nim")
+        self.assertEqual(orch.providers[0].base_url, "https://nvidia.example/v1")
+        self.assertEqual(orch.providers[0].model, "meta/llama-3.1-8b-instruct")
+
+    def test_skill_orchestrator_does_not_reuse_nvidia_key_for_openai(self):
+        env = {
+            "DATAFORGE_LIVE_LLM": "true",
+            "DATAFORGE_LLM_PROVIDERS": "openai",
+            "DATAFORGE_LLM_API_KEY": "ENV-NV-KEY",
+        }
+        orch = build_skill_orchestrator_for(self.bob, self.vault, env=env)
+        self.assertEqual(orch.status()["active_provider"], "local-deterministic")
+
 
 class KaggleHfResolverTest(unittest.TestCase):
     def setUp(self):
@@ -155,6 +177,7 @@ class KaggleHfResolverTest(unittest.TestCase):
             self.alice, self.vault, env={"DATAFORGE_DISCOVERY_LIVE": "true"}
         )
         kaggle = [p for p in svc.providers if isinstance(p, KaggleProvider)][0]
+        self.assertTrue(any(isinstance(p, WebSearchProvider) for p in svc.providers))
         self.assertTrue(kaggle.configured)
         self.assertEqual(kaggle.username, "vault-user")
         self.assertEqual(kaggle.key, "vault-key")

@@ -108,13 +108,20 @@ class SecurityPolicy:
     def cors_origins(self) -> list:
         return list(self.config.cors_origins)
 
-    def evaluate(self, path: str, api_key: str | None, body_size: int, client_id: str) -> Decision:
+    def evaluate(
+        self,
+        path: str,
+        api_key: str | None,
+        body_size: int,
+        client_id: str,
+        has_session: bool = False,
+    ) -> Decision:
         if path in self.public_paths:
             return Decision(True)
         size = self.limits.check_size(body_size)
         if not size.allowed:
             return size
-        if not self.auth.check(api_key):
+        if not has_session and not self.auth.check(api_key):
             return Decision(False, 401, "invalid or missing API key")
         if not self.rate.allow(client_id):
             return Decision(False, 429, "rate limit exceeded")
@@ -128,13 +135,24 @@ def build_security_middleware(config: SecurityConfig | None = None):
 
     cfg = config or SecurityConfig.from_env()
     policy = SecurityPolicy(cfg)
+    session_cookie = os.getenv("DATAFORGE_SESSION_COOKIE", "dataforge_session")
 
     class SecurityMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request, call_next):
+            content_length = request.headers.get("content-length")
+            if content_length and content_length.isdigit():
+                size = policy.limits.check_size(int(content_length))
+                if not size.allowed:
+                    return JSONResponse({"error": size.reason}, status_code=size.status)
+
             body = await request.body()
             client = request.client.host if request.client else "anon"
             decision = policy.evaluate(
-                request.url.path, request.headers.get("x-api-key"), len(body), client
+                request.url.path,
+                request.headers.get("x-api-key"),
+                len(body),
+                client,
+                has_session=bool(request.cookies.get(session_cookie)),
             )
             if not decision.allowed:
                 return JSONResponse({"error": decision.reason}, status_code=decision.status)

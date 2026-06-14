@@ -9,11 +9,11 @@
 
   /* ---------- intensity model (mirrors backend INTENSITY_PROFILES) ---------- */
   var INTENSITY = {
-    easy:      { label: "Easy",      providers: 1, limit: 5,   hint: "Fastest. One source, ~5 candidates — a quick look." },
-    medium:    { label: "Medium",    providers: 2, limit: 12,  hint: "Balanced. Two sources, ~12 candidates — the sensible default." },
-    hard:      { label: "Hard",      providers: 3, limit: 25,  hint: "Thorough. All sources, ~25 candidates — takes a little longer." },
-    very_hard: { label: "Very Hard", providers: 3, limit: 50,  hint: "Deep. All sources, ~50 candidates — for serious sourcing." },
-    intense:   { label: "Intense",   providers: 3, limit: 100, hint: "Exhaustive. All sources, ~100 candidates — slowest, widest net." },
+    easy:      { label: "Easy",      providers: 1, limit: 5,   passes: 1, hint: "Fastest. One provider, one query pass, ~5 candidates." },
+    medium:    { label: "Medium",    providers: 2, limit: 12,  passes: 1, hint: "Balanced. Two providers, one query pass, ~12 candidates." },
+    hard:      { label: "Hard",      providers: 3, limit: 25,  passes: 2, hint: "Thorough. Portal search plus generic web discovery and a broader second query pass." },
+    very_hard: { label: "Very Hard", providers: 4, limit: 50,  passes: 3, hint: "Deep. HuggingFace, web, data.gov, and Kaggle with three query passes." },
+    intense:   { label: "Intense",   providers: 4, limit: 100, passes: 4, hint: "Exhaustive. All providers plus generic web search, four broadened query passes - slowest and deepest." },
   };
   var INTENSITY_KEYS = ["easy", "medium", "hard", "very_hard", "intense"];
 
@@ -32,6 +32,36 @@
   }
   function metricValue(v) { return (v === undefined || v === null || v === "") ? "n/a" : v; }
   function sourceLabel(item) { return item.source || item.provider || "local"; }
+  function sourceUrl(item) { return item && (item.url || item.source_url || item.dataset_url || item.homepage || ""); }
+  function safeHref(raw) {
+    if (!raw) return "";
+    try {
+      var text = String(raw).trim();
+      if (!text || /[\u0000-\u001f\u007f]/.test(text) || text.indexOf("//") === 0) return "";
+      var url = new URL(text, window.location.origin);
+      if (url.protocol !== "http:" && url.protocol !== "https:") return "";
+      if (url.origin === window.location.origin && text.charAt(0) !== "/") return "";
+      return url.href;
+    } catch (err) {
+      return "";
+    }
+  }
+  function responseItems(body) {
+    if (Array.isArray(body)) return body;
+    if (!body || typeof body !== "object") return [];
+    if (Array.isArray(body.results)) return body.results;
+    if (Array.isArray(body.items)) return body.items;
+    if (Array.isArray(body.datasets)) return body.datasets;
+    if (body.data && Array.isArray(body.data.items)) return body.data.items;
+    if (body.data && Array.isArray(body.data.results)) return body.data.results;
+    return [];
+  }
+  function sourceLink(item, label) {
+    var url = safeHref(sourceUrl(item));
+    if (!url) return "";
+    return "<a class='source-link' href='" + escapeHtml(url) + "' target='_blank' rel='noopener noreferrer'>" +
+      escapeHtml(label || "Open source dataset") + "</a>";
+  }
 
   function pct(item) {
     var raw = item.relevance_score != null ? item.relevance_score
@@ -76,22 +106,52 @@
   }
   function setStatus(text) { var el = $("#statusLine"); if (el) el.textContent = text; }
 
+  function showApiBaseWarning() {
+    var cfg = window.DataForgeConfig || {};
+    if (!cfg.apiBase || !cfg.defaultApiBase) return;
+    if (cfg.apiBase === cfg.defaultApiBase || cfg.apiBaseSource === "same-origin" || cfg.apiBaseSource === "meta") return;
+    var banner = document.createElement("div");
+    banner.className = "api-base-warning";
+    banner.setAttribute("role", "status");
+    banner.innerHTML =
+      "<strong>External API target active</strong>" +
+      "<span>Requests and session cookies are going to " + escapeHtml(cfg.apiBase) +
+      " via " + escapeHtml(cfg.apiBaseSource || "override") + " configuration.</span>";
+    document.body.insertBefore(banner, document.body.firstChild);
+  }
+
   /* ---------- AI provider pill (all pages) ---------- */
   function loadProviderStatus() {
     var pill = $("#providerStatus");
     if (!pill || !Api) return;
     Api.llmStatus().then(function (status) {
-      var active = String((status && (status.active_provider || (status.provider_priority || [])[0])) || "").toLowerCase();
-      var live = status && (status.live_llm === true || status.mode === "live" || (active && active !== "local-deterministic" && active !== "offline"));
+      status = status || {};
+      var active = String(
+        status.active_provider ||
+        status.provider ||
+        status.name ||
+        (status.provider_priority || [])[0] ||
+        ""
+      ).toLowerCase();
+      var offline = !active ||
+        active === "local-deterministic" ||
+        active === "offline" ||
+        active === "local" ||
+        active.indexOf("determin") > -1;
+      var live = status.live_llm === true ||
+        status.mode === "live" ||
+        status.status === "live" ||
+        status.available === true ||
+        !offline;
       if (live && active) {
-        pill.textContent = "AI · " + active.toUpperCase();
+        pill.textContent = "AI - " + active.toUpperCase();
         pill.dataset.mode = "live";
       } else {
-        pill.textContent = "AI · Offline";
+        pill.textContent = "AI - Offline";
         pill.dataset.mode = "offline";
       }
     }).catch(function () {
-      pill.textContent = "AI · Offline";
+      pill.textContent = "AI - Offline";
       pill.dataset.mode = "offline";
     });
   }
@@ -100,7 +160,7 @@
   /* DISCOVER PAGE                                                          */
   /* ====================================================================== */
   function initDiscover() {
-    var state = { results: [], active: null, tab: "overview", intensity: localStorage.getItem("df_intensity") || "medium" };
+    var state = { results: [], active: null, tab: "overview", intensity: localStorage.getItem("df_intensity") || "medium", query: "" };
     if (INTENSITY_KEYS.indexOf(state.intensity) === -1) state.intensity = "medium";
 
     var form = $("#searchForm");
@@ -132,6 +192,29 @@
       resultsList.innerHTML = "<div class='skeleton'></div><div class='skeleton'></div><div class='skeleton'></div>";
     }
 
+    function searchWarnings(body) {
+      var warnings = [];
+      if (body && Array.isArray(body.warnings)) warnings = warnings.concat(body.warnings);
+      if (body && body.discovery && Array.isArray(body.discovery.errors)) {
+        body.discovery.errors.forEach(function (warning) {
+          if (warnings.indexOf(warning) === -1) warnings.push(warning);
+        });
+      }
+      return warnings;
+    }
+
+    function renderSearchFailure(query, warnings, discovery) {
+      var providerText = discovery && discovery.providers_used && discovery.providers_used.length
+        ? "Providers tried: " + discovery.providers_used.join(", ")
+        : "No provider returned usable results.";
+      resultsList.innerHTML = "<div class='empty-state result-card search-warning'><h3>Search did not finish cleanly</h3>" +
+        "<p>DataForge could not retrieve public datasets for \"" + escapeHtml(query) + "\". " + escapeHtml(providerText) + "</p>" +
+        (warnings.length ? "<ul>" + warnings.slice(0, 4).map(function (warning) {
+          return "<li>" + escapeHtml(warning) + "</li>";
+        }).join("") + "</ul>" : "") +
+        "<p class='muted'>Try a lower intensity, a broader query, or check live provider credentials/network.</p></div>";
+    }
+
     function renderResults() {
       if (!state.results.length) {
         resultsList.innerHTML = "<div class='empty-state result-card'><h3>No datasets found</h3><p>Try a broader query or raise the intensity.</p></div>";
@@ -146,6 +229,45 @@
           renderDetails();
         });
       });
+      $all(".source-link", resultsList).forEach(function (link) {
+        link.addEventListener("click", function (event) { event.stopPropagation(); });
+      });
+      $all(".save-public", resultsList).forEach(function (btn) {
+        btn.addEventListener("click", function (event) {
+          event.stopPropagation();
+          savePublic(btn.dataset.id, btn);
+        });
+      });
+    }
+
+    function canSavePublic(item) {
+      return !!(item && sourceUrl(item) && item.source !== "local_upload" && item.provider !== "local");
+    }
+
+    function savePublic(id, btn) {
+      var item = state.results.find(function (r) { return String(r.id) === String(id); });
+      if (!item || !Api.savePublicDataset) return;
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Saving...";
+      }
+      Api.savePublicDataset(item, state.query).then(function (body) {
+        var saved = body && body.dataset;
+        toast("Saved to catalog.");
+        if (saved) {
+          item.saved_dataset_id = saved.id;
+          item.saved = true;
+          if (state.active && String(state.active.id) === String(item.id)) state.active = item;
+        }
+        renderResults();
+        renderDetails();
+      }).catch(function (err) {
+        toast(err.message || "Could not save dataset.", true);
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "Save to catalog";
+        }
+      });
     }
 
     function renderCard(item) {
@@ -159,6 +281,8 @@
         "<div class='meta-row'><span>" + escapeHtml(sourceLabel(item)) + "</span>" +
         "<span>" + escapeHtml(fmtInt(item.rows != null ? item.rows : (item.metadata && item.metadata.rows) || 0)) + " rows</span>" +
         "<span>quality " + escapeHtml(metricValue(item.quality_score)) + "</span>" + difficultyBadge(item) + "</div>" +
+        sourceLink(item, "Open dataset") +
+        (canSavePublic(item) ? "<button class='button ghost save-public' type='button' data-id='" + escapeHtml(item.id) + "'>" + (item.saved ? "Saved" : "Save to catalog") + "</button>" : "") +
         (tags.length ? "<div class='meta-row'>" + tags.map(function (t) { return "<span class='tag'>" + escapeHtml(t) + "</span>"; }).join("") + "</div>" : "") +
         "</article>";
     }
@@ -172,10 +296,18 @@
       var tabs = ["overview", "schema", "quality", "artifacts", "recommendations"];
       detailsPane.innerHTML = "<h3>" + escapeHtml(item.title) + "</h3>" +
         "<div class='meta-row'><span>" + escapeHtml(sourceLabel(item)) + "</span><span>" + escapeHtml(item.format || item.license || "dataset") + "</span>" + difficultyBadge(item) + "</div>" +
+        sourceLink(item, "Open original source") +
+        (canSavePublic(item) ? "<button class='button ghost save-public detail-save' type='button' data-id='" + escapeHtml(item.id) + "'>" + (item.saved ? "Saved to catalog" : "Save to catalog") + "</button>" : "") +
         "<div class='tabs'>" + tabs.map(function (t) { return "<button class='tab " + (state.tab === t ? "active" : "") + "' data-tab='" + t + "' type='button'>" + t + "</button>"; }).join("") + "</div>" +
         renderTab(item);
       $all(".tab", detailsPane).forEach(function (tab) {
         tab.addEventListener("click", function () { state.tab = tab.dataset.tab; renderDetails(); });
+      });
+      $all(".save-public", detailsPane).forEach(function (btn) {
+        btn.addEventListener("click", function (event) {
+          event.stopPropagation();
+          savePublic(btn.dataset.id, btn);
+        });
       });
     }
 
@@ -197,8 +329,11 @@
       }
       if (state.tab === "artifacts") {
         var dl = zipUrl(item);
+        var src = sourceLink(item, "Open source dataset");
         return "<div class='detail-section'><h4>Artifacts</h4><div class='artifact-links'>" +
-          (dl ? "<a href='" + escapeHtml(dl) + "'>Download ZIP package</a>" : "<p>No artifact for public candidates — forge it first.</p>") +
+          (dl ? "<a href='" + escapeHtml(dl) + "'>Download ZIP package</a>" : "") +
+          (src || "") +
+          (!dl && !src ? "<p>No artifact or source link available for this result.</p>" : "") +
           "</div></div>";
       }
       if (state.tab === "recommendations") {
@@ -214,18 +349,36 @@
     }
 
     function runSearch(query) {
+      state.query = query;
       renderLoading();
       var prof = INTENSITY[state.intensity];
-      setStatus("Searching at " + prof.label + " intensity\u2026 (up to " + prof.providers + " sources, ~" + prof.limit + " candidates)");
-      Api.searchDatasets(query, { intensity: state.intensity, includePublic: true }).then(function (body) {
-        state.results = (body && body.results) || [];
+      setStatus("Searching at " + prof.label + " intensity... (" + prof.providers + " sources, " + prof.passes + " query pass" + (prof.passes === 1 ? "" : "es") + ", up to ~" + prof.limit + " returned)");
+      Api.searchDatasets(query, { intensity: state.intensity, includePublic: true, limit: prof.limit }).then(function (body) {
+        state.results = responseItems(body);
         state.active = state.results[0] || null;
         state.tab = "overview";
         var counts = (body && body.counts) || {};
-        setStatus(state.results.length + " results for \u201c" + query + "\u201d · " + prof.label + " intensity" +
-          (counts.local != null ? " · local " + counts.local : "") + (counts.public != null ? " · public " + counts.public : ""));
-        toast("Search complete.");
-        renderResults();
+        var warnings = searchWarnings(body);
+        var status = (body && body.search_status) || (warnings.length ? "partial" : "complete");
+        var prefix = status === "failed" ? "Search failed" :
+          status === "partial" ? "Partial results" :
+          status === "disabled" ? "Public discovery disabled" :
+          status === "empty" ? "No matches" : "Search complete";
+        setStatus(prefix + ": " + state.results.length + " results for \"" + query + "\" - " + prof.label + " intensity" +
+          (counts.local != null ? " - local " + counts.local : "") +
+          (counts.public != null ? " - public " + counts.public : "") +
+          (counts.local == null && counts.public == null && body && body.total != null ? " - total " + body.total : "") +
+          (warnings.length ? " - " + warnings.length + " provider warning" + (warnings.length === 1 ? "" : "s") : ""));
+        if (status === "failed") {
+          toast("Search failed at provider level.", true);
+          renderSearchFailure(query, warnings, body && body.discovery);
+        } else {
+          toast(status === "partial" ? "Partial results: some providers failed." :
+            status === "disabled" ? "Public discovery disabled; showing local results." :
+            status === "empty" ? "No matching datasets found." : "Search complete.",
+            status === "partial");
+          renderResults();
+        }
         renderDetails();
       }).catch(function (err) {
         setStatus(err.message || "Search failed.");
@@ -360,8 +513,8 @@
       grid.innerHTML = "<div class='skeleton'></div><div class='skeleton'></div><div class='skeleton'></div>";
       setStatus("Loading catalog\u2026");
       Api.catalog().then(function (body) {
-        var items = (body && (body.datasets || body.results)) || [];
-        setStatus(items.length + " indexed datasets.");
+        var items = responseItems(body);
+        setStatus((body && body.total != null ? body.total : items.length) + " indexed datasets.");
         render(items);
       }).catch(function (err) {
         setStatus(err.message || "Failed to load catalog.");
@@ -819,6 +972,291 @@
   }
 
   /* ---------- auth state + account control (non-auth pages) ---------- */
+  /* ---------------------------------------------------------------------- */
+  /* PIPELINE PAGE  (public) - shows the real execution flow + agent registry */
+  /* ---------------------------------------------------------------------- */
+  function initPipeline() {
+    var STAGES = [
+      { n: 1, key: "requirement", name: "Requirement Analyzer", cls: "engine-det", engineLabel: "Deterministic", does: "Parses the natural-language request and search intensity into a structured dataset spec." },
+      { n: 2, key: "planner", name: "Planner", cls: "engine-det", engineLabel: "Deterministic", does: "Selects the workflow and which agents this run needs; stages that do not apply are skipped." },
+      { n: 3, key: "discovery", name: "Discovery / Ingestion", cls: "engine-live", engineLabel: "Live provider APIs", does: "Searches real providers for public data or ingests uploaded rows, then normalizes metadata for the catalog." },
+      { n: 4, key: "quality", name: "Quality Evaluator", cls: "engine-det", engineLabel: "Deterministic", does: "Scores quality dimensions computed from the actual rows and metadata." },
+      { n: 5, key: "ai", name: "AI Skills - Generator + Critic", cls: "engine-nim", engineLabel: "NVIDIA NIM", does: "AI skills summarize, recommend, and review with NVIDIA NIM when configured, with a clearly labeled deterministic fallback." },
+      { n: 6, key: "packaging", name: "Packaging", cls: "engine-det", engineLabel: "Deterministic", does: "Builds the manifest, checksums and a reproducible ZIP." },
+      { n: 7, key: "explain", name: "Explainability", cls: "engine-nim", engineLabel: "NVIDIA NIM", does: "Writes the dataset card and quality narrative through NIM." }
+    ];
+
+    var AGENT_LABELS = {
+      requirement_analyzer: "Requirement Analyzer",
+      clarification: "Clarification Agent",
+      discovery: "Discovery Agent",
+      license: "License Agent",
+      merge: "Merge Agent",
+      cleaning: "Cleaning Agent",
+      curator: "Curator Agent",
+      translation: "Translation Agent",
+      quality_evaluator: "Quality Evaluator",
+      generator: "Generator Agent",
+      critic: "Critic Agent",
+      validator: "Validator Agent",
+      bias: "Bias Agent",
+      benchmark: "Benchmark Agent",
+      formatter: "Formatter Agent",
+      packaging: "Packaging Agent",
+      explainability: "Explainability Agent"
+    };
+    var ACTIVE_AGENT_IDS = {
+      requirement_analyzer: true,
+      discovery: true,
+      quality_evaluator: true,
+      generator: true,
+      critic: true,
+      packaging: true,
+      explainability: true
+    };
+    var FALLBACK_CARDS = {
+      planner: { id: "planner", name: "Planner", registry_agent: false, category: "orchestration", mission: "Builds execution graphs and selects registry agents." },
+      requirement_analyzer: { id: "requirement_analyzer", category: "orchestration_input", registry_agent: true, capabilities: ["analyze_requirements"], llm_required: true },
+      clarification: { id: "clarification", category: "orchestration_input", registry_agent: true, capabilities: ["clarify"], llm_required: true },
+      discovery: { id: "discovery", category: "discovery", registry_agent: true, capabilities: ["search"], llm_required: false },
+      license: { id: "license", category: "governance", registry_agent: true, capabilities: ["license_check"], llm_required: false },
+      merge: { id: "merge", category: "processing", registry_agent: true, capabilities: ["merge"], llm_required: false },
+      cleaning: { id: "cleaning", category: "processing", registry_agent: true, capabilities: ["clean", "deduplicate", "pii_removal"], llm_required: false },
+      curator: { id: "curator", category: "processing", registry_agent: true, capabilities: ["curation", "deduplication"], llm_required: false },
+      translation: { id: "translation", category: "processing", registry_agent: true, capabilities: ["translate"], llm_required: true },
+      quality_evaluator: { id: "quality_evaluator", category: "evaluation", registry_agent: true, capabilities: ["quality_score"], llm_required: true },
+      generator: { id: "generator", category: "generation", registry_agent: true, capabilities: ["generate"], llm_required: true },
+      critic: { id: "critic", category: "evaluation", registry_agent: true, capabilities: ["critique"], llm_required: true },
+      validator: { id: "validator", category: "evaluation", registry_agent: true, capabilities: ["validate"], llm_required: true },
+      bias: { id: "bias", category: "evaluation", registry_agent: true, capabilities: ["bias_analysis"], llm_required: false },
+      benchmark: { id: "benchmark", category: "evaluation", registry_agent: true, capabilities: ["benchmark"], llm_required: false },
+      formatter: { id: "formatter", category: "export", registry_agent: true, capabilities: ["format"], llm_required: false },
+      packaging: { id: "packaging", category: "export", registry_agent: true, capabilities: ["package"], llm_required: false },
+      explainability: { id: "explainability", category: "audit", registry_agent: true, capabilities: ["audit"], llm_required: true }
+    };
+    var CATEGORY_ORDER = ["orchestration_input", "discovery", "governance", "processing", "evaluation", "generation", "export", "audit"];
+
+    function tagLabel(t) { return t === "active" ? "Live path" : (t === "llm" ? "LLM capable" : "Registered"); }
+    function providerCls(p) {
+      p = String(p || "").toLowerCase();
+      if (p.indexOf("nim") > -1) return "engine-nim";
+      if (p.indexOf("http") > -1 || p.indexOf("live") > -1) return "engine-live";
+      return "engine-det";
+    }
+
+    var flow = $("#pipelineFlow");
+    if (flow) {
+      var fhtml = "";
+      for (var i = 0; i < STAGES.length; i++) {
+        var s = STAGES[i];
+        if (i > 0) fhtml += "<div class='pipe-arrow' aria-hidden='true'>&rarr;</div>";
+        fhtml += "<article class='pipe-stage' id='stage-" + s.key + "'>" +
+          "<span class='num'>Stage " + s.n + "</span>" +
+          "<h3>" + escapeHtml(s.name) + "</h3>" +
+          "<p>" + escapeHtml(s.does) + "</p>" +
+          "<span class='engine-pill " + s.cls + "'>" + escapeHtml(s.engineLabel) + "</span>" +
+          "</article>";
+      }
+      flow.innerHTML = fhtml;
+    }
+
+    function cleanName(id, card) {
+      return AGENT_LABELS[id] || (card && card.name ? String(card.name).replace(/_/g, " ") : id.replace(/_/g, " "));
+    }
+    function renderAgentCard(id, card) {
+      var tag = ACTIVE_AGENT_IDS[id] ? "active" : (card.llm_required ? "llm" : "impl");
+      var caps = (card.capabilities || []).slice(0, 3).join(", ");
+      return "<div class='reg-agent'>" +
+        "<span class='reg-name'>" + escapeHtml(cleanName(id, card)) +
+          (caps ? " <span class='reg-sub'>" + escapeHtml(caps) + "</span>" : "") +
+        "</span><span class='tag tag-" + tag + "'>" + escapeHtml(tagLabel(tag)) + "</span></div>";
+    }
+    function renderRegistry(cards) {
+      var panel = $("#registryPanel");
+      if (!panel) return;
+      cards = cards || {};
+      var planner = cards.planner || { name: "Planner", mission: "Registry unavailable; start the backend to inspect live capability cards." };
+      var registryIds = Object.keys(cards).filter(function (id) {
+        return id !== "planner" && cards[id] && cards[id].registry_agent !== false;
+      });
+      if (!registryIds.length) {
+        panel.innerHTML = "<div class='run-empty'><strong>Agent registry unavailable.</strong><p>Start the backend and reload this page to inspect the live 17-agent registry. The seven-stage pipeline above is the real default execution path.</p></div>";
+        return;
+      }
+      registryIds.sort(function (a, b) {
+        var ac = CATEGORY_ORDER.indexOf(cards[a].category);
+        var bc = CATEGORY_ORDER.indexOf(cards[b].category);
+        if (ac === -1) ac = 99;
+        if (bc === -1) bc = 99;
+        return ac === bc ? a.localeCompare(b) : ac - bc;
+      });
+      var byCategory = {};
+      registryIds.forEach(function (id) {
+        var category = cards[id].category || "execution";
+        if (!byCategory[category]) byCategory[category] = [];
+        byCategory[category].push(id);
+      });
+
+      var activeCount = registryIds.filter(function (id) { return ACTIVE_AGENT_IDS[id]; }).length;
+      var html = "<div class='reg-group reg-brain'><div class='reg-head'><h4>Planner brain</h4>" +
+        "<span class='reg-note'>1 orchestrator, outside the registry. It plans; it does not transform data.</span></div>" +
+        "<div class='reg-agents'><div class='reg-agent'><span class='reg-name'>" + escapeHtml(planner.name || "Planner") +
+        " <span class='reg-sub'>" + escapeHtml(planner.mission || "Builds execution graphs from capability cards.") +
+        "</span></span><span class='tag tag-brain'>Brain</span></div></div></div>";
+
+      html += "<div class='reg-summary'><span>17 registry execution agents</span><span>" +
+        activeCount + " shown in the default live path</span><span>" +
+        (registryIds.length - activeCount) + " available for conditional workflows</span></div>";
+
+      CATEGORY_ORDER.forEach(function (category) {
+        var ids = byCategory[category] || [];
+        if (!ids.length) return;
+        html += "<div class='reg-group'><div class='reg-head'><h4>" + escapeHtml(category.replace(/_/g, " ")) +
+          "</h4><span class='reg-note'>" + ids.length + " agent" + (ids.length === 1 ? "" : "s") +
+          "</span></div><div class='reg-agents'>";
+        ids.forEach(function (id) { html += renderAgentCard(id, cards[id]); });
+        html += "</div></div>";
+      });
+      panel.innerHTML = html;
+    }
+    if (Api && Api.agentCards) {
+      var registryPanel = $("#registryPanel");
+      if (registryPanel) registryPanel.innerHTML = "<div class='run-empty'>Loading live agent registry...</div>";
+      Api.agentCards().then(function (data) {
+        renderRegistry(data && data.cards);
+      }).catch(function () { renderRegistry({}); });
+    } else {
+      renderRegistry({});
+    }
+
+    var toggle = $("#registryToggle");
+    var panel = $("#registryPanel");
+    if (toggle && panel) {
+      toggle.addEventListener("click", function () {
+        var closed = panel.hasAttribute("hidden");
+        if (closed) {
+          panel.removeAttribute("hidden");
+          toggle.setAttribute("aria-expanded", "true");
+          toggle.textContent = "Hide full agent registry";
+        } else {
+          panel.setAttribute("hidden", "");
+          toggle.setAttribute("aria-expanded", "false");
+          toggle.textContent = "Show full agent registry (17)";
+        }
+      });
+    }
+
+    // Live AI engine on the AI Skills stage, from the real /ai/llm/status.
+    if (Api && Api.llmStatus) {
+      Api.llmStatus().then(function (data) {
+        var p = "";
+        if (data) p = String(data.provider || data.mode || data.name || "").toLowerCase();
+        var avail = data && data.available !== undefined ? !!data.available : null;
+        var text = null, cls = null;
+        if (p.indexOf("nim") > -1) { text = "Live \u00b7 NVIDIA NIM"; cls = "engine-nim"; }
+        else if (p.indexOf("http") > -1 || p.indexOf("live") > -1) { text = "Live \u00b7 HTTP model"; cls = "engine-live"; }
+        else if (avail === false || p.indexOf("local") > -1 || p.indexOf("determin") > -1) { text = "Deterministic fallback"; cls = "engine-det"; }
+        if (text) {
+          var pills = $all("#stage-ai .engine-pill");
+          if (pills[0]) { pills[0].textContent = text; pills[0].className = "engine-pill " + cls; }
+        }
+      }).catch(function () {});
+    }
+
+    // Latest real run from the catalog (auth required; degrade gracefully).
+    var statusLine = $("#statusLine");
+    var runBox = $("#latestRun");
+    function emptyRun(msg) { return "<div class='run-empty'>" + escapeHtml(msg) + "</div>"; }
+    function fact(k, v) { return "<span class='run-fact'><b>" + escapeHtml(k) + "</b>" + escapeHtml(String(v)) + "</span>"; }
+    function renderRun(d) {
+      var prov = d.ai_provider || "local";
+      var q = (d.quality_metrics && typeof d.quality_metrics === "object") ? d.quality_metrics : {};
+      var dims = ["completeness", "consistency", "diversity", "duplicate_ratio", "formatting", "readability", "model_compatibility"];
+      var mhtml = "";
+      for (var i = 0; i < dims.length; i++) {
+        if (q[dims[i]] != null) {
+          mhtml += "<span class='run-metric'><b>" + escapeHtml(dims[i].replace(/_/g, " ")) + "</b>" + escapeHtml(String(q[dims[i]])) + "</span>";
+        }
+      }
+      return "<article class='run-card'>" +
+        "<header class='run-top'><h3>" + escapeHtml(d.title || d.filename || "Untitled dataset") + "</h3>" +
+        "<span class='engine-pill " + providerCls(prov) + "'>AI \u00b7 " + escapeHtml(prov) + "</span></header>" +
+        "<div class='run-facts'>" +
+          fact("Source", d.source || d.provider || "local") +
+          fact("Rows", fmtInt(d.rows)) +
+          fact("Columns", fmtInt(d.columns)) +
+          fact("Quality", d.quality_score != null ? (d.quality_score + " / 100") : "n/a") +
+        "</div>" +
+        (mhtml ? "<div class='run-metrics'>" + mhtml + "</div>" : "") +
+        (d.quality_narrative ? "<p class='run-narr'>" + escapeHtml(d.quality_narrative) + "</p>" : "") +
+        "<p class='run-foot'>Rendered from a real stored run: discovery / ingestion &rarr; quality &rarr; AI skills &rarr; packaging &rarr; explainability.</p>" +
+        "</article>";
+    }
+    function renderTraceRun(run, trace) {
+      trace = trace || [];
+      var steps = trace.map(function (step, i) {
+        var output = step.output || {};
+        var summary = Object.keys(output).slice(0, 4).map(function (k) {
+          var v = output[k];
+          if (v && typeof v === "object") v = Array.isArray(v) ? ("list(" + v.length + ")") : "object";
+          return "<span class='run-metric'><b>" + escapeHtml(k.replace(/_/g, " ")) + "</b>" + escapeHtml(String(v)) + "</span>";
+        }).join("");
+        return "<div class='trace-step'>" +
+          "<span class='num'>Stage " + (i + 1) + "</span>" +
+          "<h4>" + escapeHtml(step.name || "Stage") + "</h4>" +
+          "<span class='engine-pill " + providerCls(step.engine) + "'>" + escapeHtml(step.engine || "engine") + "</span>" +
+          "<p>" + escapeHtml(step.status || "completed") + "</p>" +
+          (summary ? "<div class='run-metrics'>" + summary + "</div>" : "") +
+          "</div>";
+      }).join("");
+      return "<article class='run-card'>" +
+        "<header class='run-top'><h3>" + escapeHtml(run.workflow || "Workflow run") + "</h3>" +
+        "<span class='engine-pill " + providerCls(run.status) + "'>" + escapeHtml(run.status || "unknown") + "</span></header>" +
+        "<div class='run-facts'>" +
+          fact("Task", run.task_id || "n/a") +
+          fact("Created", run.created_at || "n/a") +
+          fact("Stages", trace.length || 0) +
+        "</div>" +
+        (steps ? "<div class='trace-list'>" + steps + "</div>" : "<p class='run-narr'>No stage trace was stored for this run.</p>") +
+        "</article>";
+    }
+    function loadCatalogFallback() {
+      return Api.catalog().then(function (data) {
+        var items = responseItems(data);
+        if (!items.length) {
+          if (statusLine) statusLine.textContent = "";
+          runBox.innerHTML = emptyRun("No forged datasets yet. Run a flow in Forge to see real pipeline output here.");
+          return;
+        }
+        items.sort(function (x, y) { return String(y.created_at || "").localeCompare(String(x.created_at || "")); });
+        if (statusLine) statusLine.textContent = "";
+        runBox.innerHTML = renderRun(items[0]);
+      });
+    }
+    if (runBox) {
+      if (statusLine) statusLine.textContent = "Loading the most recent forge run\u2026";
+      (Api.workflowRuns ? Api.workflowRuns().then(function (data) {
+        var runs = (data && data.runs) || [];
+        runs.sort(function (x, y) { return String(y.created_at || "").localeCompare(String(x.created_at || "")); });
+        if (!runs.length || !Api.workflowRun) return loadCatalogFallback();
+        return Api.workflowRun(runs[0].task_id).then(function (detail) {
+          var run = (detail && detail.run) || runs[0];
+          if (statusLine) statusLine.textContent = "";
+          runBox.innerHTML = renderTraceRun(run, (detail && detail.stage_trace) || run.stage_trace || []);
+        });
+      }) : loadCatalogFallback()).catch(function (err) {
+        if (statusLine) statusLine.textContent = "";
+        if (err && err.status === 401) {
+          runBox.innerHTML = emptyRun("Sign in and forge a dataset to see a real pipeline run here.");
+        } else {
+          loadCatalogFallback().catch(function () {
+            runBox.innerHTML = emptyRun("Live run data is unavailable right now.");
+          });
+        }
+      });
+    }
+  }
+
   var AUTH = { me: null };
   var PROTECTED = { forge: true, catalog: true, settings: true, teams: true };
   var accountBox = $("#accountBox");
@@ -869,27 +1307,35 @@
     else if (PAGE === "catalog") initCatalog();
     else if (PAGE === "settings") initSettings();
     else if (PAGE === "teams") initTeams();
+    else if (PAGE === "pipeline") initPipeline();
   }
 
   /* ---------- boot ---------- */
+  showApiBaseWarning();
   loadProviderStatus();
   if (PAGE === "auth") {
     initAuth();
   } else {
-    // Resolve auth state first: protected pages redirect to login on 401,
-    // Discover stays public and just reflects auth state in the navbar.
-    Api.me().then(function (user) {
-      AUTH.me = user;
-      renderAccount();
-      bootPage();
-    }).catch(function (err) {
-      AUTH.me = null;
-      renderAccount();
-      if (PROTECTED[PAGE] && err && err.status === 401) {
-        gotoLogin();
-      } else {
+    if (PROTECTED[PAGE]) {
+      Api.me().then(function (user) {
+        AUTH.me = user;
+        renderAccount();
         bootPage();
-      }
-    });
+      }).catch(function (err) {
+        AUTH.me = null;
+        renderAccount();
+        if (err && err.status === 401) gotoLogin();
+        else bootPage();
+      });
+    } else {
+      bootPage();
+      Api.me().then(function (user) {
+        AUTH.me = user;
+        renderAccount();
+      }).catch(function () {
+        AUTH.me = null;
+        renderAccount();
+      });
+    }
   }
 })();
